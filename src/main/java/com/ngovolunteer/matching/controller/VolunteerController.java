@@ -1,28 +1,43 @@
 package com.ngovolunteer.matching.controller;
 
 import com.ngovolunteer.matching.entity.Volunteer;
-import com.ngovolunteer.matching.repository.VolunteerRepository;
+import com.ngovolunteer.matching.service.VolunteerService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/test")
+@RequestMapping("/api/volunteers")
 public class VolunteerController {
 
-    private final VolunteerRepository volunteerRepository;
+    private final VolunteerService volunteerService;
 
-    public VolunteerController(VolunteerRepository volunteerRepository) {
-        this.volunteerRepository = volunteerRepository;
+    public VolunteerController(VolunteerService volunteerService) {
+        this.volunteerService = volunteerService;
     }
 
-    @PostMapping("/volunteer")
+    @PostMapping
     public Volunteer createVolunteer(@RequestBody Volunteer volunteer) {
-        return volunteerRepository.save(volunteer);
+        return volunteerService.createVolunteer(volunteer);
     }
 
-    @GetMapping("/volunteers")
-    public List<Volunteer> getVolunteers() {
-        return volunteerRepository.findAll();
+    @GetMapping
+    public List<Volunteer> getAllVolunteers() {
+        return volunteerService.getAllVolunteers();
+    }
+
+    @GetMapping("/{id}")
+    public Volunteer getVolunteerById(@PathVariable Long id) {
+        return volunteerService.getVolunteerById(id);
+    }
+
+    @PutMapping("/{id}")
+    public Volunteer updateVolunteer(@PathVariable Long id, @RequestBody Volunteer volunteer) {
+        return volunteerService.updateVolunteer(id, volunteer);
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteVolunteer(@PathVariable Long id) {
+        volunteerService.deleteVolunteer(id);
     }
 }

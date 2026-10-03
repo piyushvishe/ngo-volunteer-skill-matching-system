@@ -1,28 +1,43 @@
 package com.ngovolunteer.matching.controller;
 
 import com.ngovolunteer.matching.entity.User;
-import com.ngovolunteer.matching.repository.UserRepository;
+import com.ngovolunteer.matching.service.UserService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/test")
+@RequestMapping("/api/users")
 public class TestController {
 
-    private final UserRepository userRepository;
+    private final UserService userService;
 
-    public TestController(UserRepository userRepository) {
-        this.userRepository = userRepository;
+    public TestController(UserService userService) {
+        this.userService = userService;
     }
 
-    @PostMapping("/user")
+    @PostMapping
     public User createUser(@RequestBody User user) {
-        return userRepository.save(user);
+        return userService.createUser(user);
     }
 
-    @GetMapping("/users")
-    public List<User> getUsers() {
-        return userRepository.findAll();
+    @GetMapping
+    public List<User> getAllUsers() {
+        return userService.getAllUsers();
+    }
+
+    @GetMapping("/{id}")
+    public User getUserById(@PathVariable Long id) {
+        return userService.getUserById(id);
+    }
+
+    @PutMapping("/{id}")
+    public User updateUser(@PathVariable Long id, @RequestBody User user) {
+        return userService.updateUser(id, user);
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
     }
 }
