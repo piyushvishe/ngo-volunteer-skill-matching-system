@@ -1,5 +1,6 @@
 package com.ngovolunteer.matching.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
 import com.ngovolunteer.matching.dto.UserRequestDTO;
 import com.ngovolunteer.matching.dto.UserResponseDTO;
 import com.ngovolunteer.matching.entity.User;
@@ -12,9 +13,11 @@ import java.util.List;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public UserResponseDTO createUser(UserRequestDTO request) {
@@ -24,7 +27,7 @@ public class UserService {
         user.setName(request.getName());
         user.setEmail(request.getEmail());
         user.setPhone(request.getPhone());
-        user.setPassword(request.getPassword());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
 
         User savedUser = userRepository.save(user);
@@ -61,7 +64,7 @@ public class UserService {
         existingUser.setName(request.getName());
         existingUser.setEmail(request.getEmail());
         existingUser.setPhone(request.getPhone());
-        existingUser.setPassword(request.getPassword());
+        existingUser.setPassword(passwordEncoder.encode(request.getPassword()));
         existingUser.setRole(request.getRole());
 
         User updatedUser = userRepository.save(existingUser);
