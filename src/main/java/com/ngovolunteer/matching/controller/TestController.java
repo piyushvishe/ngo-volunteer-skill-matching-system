@@ -1,7 +1,9 @@
 package com.ngovolunteer.matching.controller;
 
-import com.ngovolunteer.matching.entity.User;
+import com.ngovolunteer.matching.dto.UserRequestDTO;
+import com.ngovolunteer.matching.dto.UserResponseDTO;
 import com.ngovolunteer.matching.service.UserService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,23 +19,25 @@ public class TestController {
     }
 
     @PostMapping
-    public User createUser(@RequestBody User user) {
-        return userService.createUser(user);
+    public UserResponseDTO createUser(@Valid @RequestBody UserRequestDTO request) {
+        return userService.createUser(request);
     }
 
     @GetMapping
-    public List<User> getAllUsers() {
+    public List<UserResponseDTO> getAllUsers() {
         return userService.getAllUsers();
     }
 
     @GetMapping("/{id}")
-    public User getUserById(@PathVariable Long id) {
+    public UserResponseDTO getUserById(@PathVariable Long id) {
         return userService.getUserById(id);
     }
 
     @PutMapping("/{id}")
-    public User updateUser(@PathVariable Long id, @RequestBody User user) {
-        return userService.updateUser(id, user);
+    public UserResponseDTO updateUser(
+            @PathVariable Long id,
+            @Valid @RequestBody UserRequestDTO request) {
+        return userService.updateUser(id, request);
     }
 
     @DeleteMapping("/{id}")
