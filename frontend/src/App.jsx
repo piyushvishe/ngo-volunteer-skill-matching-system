@@ -1,312 +1,1399 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-const opportunities = [
-  { id:1, title:'Community Teaching Drive', ngo:'Udaan Education Trust', location:'Pune', date:'18 Sep 2026', time:'9 AM – 1 PM', score:96, skills:['Teaching','Communication','Weekdays'] },
-  { id:2, title:'Digital Awareness Campaign', ngo:'Green Earth Initiative', location:'Remote', date:'24 Sep 2026', time:'5 PM – 7 PM', score:91, skills:['Communication','Digital Skills','Flexible'] },
-  { id:3, title:'Community Health Camp', ngo:'Seva Foundation', location:'Mumbai', date:'28 Sep 2026', time:'10 AM – 3 PM', score:87, skills:['Social Work','Communication','Weekends'] },
-]
+/* =========================================================
+   FRONTEND DATA LAYER
+   ---------------------------------------------------------
+   This file has NO hard-coded volunteers, NGOs, requirements,
+   assignments or history records.
 
-const applicants = [
-  {name:'Ananya Sharma', initials:'AS', location:'Pune', availability:'Weekdays', score:96, assignments:12, hours:42, skills:['Teaching','Communication','Graphic Design'], experience:'Community Teaching Drive, Digital Literacy Workshop, School Support Programme.'},
-  {name:'Kabir Shah', initials:'KS', location:'Pune', availability:'Weekends', score:88, assignments:7, hours:25, skills:['Teaching','Event Management'], experience:'Youth Workshop, Community Events.'},
-]
+   For the current frontend-only stage, localStorage acts as the
+   temporary data store. When Spring Boot + MySQL are connected,
+   these helper functions can be replaced by API calls without
+   changing the UI flow.
+   ========================================================= */
 
-function go(path){ window.location.hash = path }
-function Link({to, children, className=''}){ return <a href={'#'+to} className={className}>{children}</a> }
-
-function Brand({dark=false}){ return <Link to="/" className="brand" style={dark?{color:'#fff'}:{}}><span className="brand-mark">🤝</span><span>Volunteer<span>Link</span></span></Link> }
-
-function Home(){
- return <>
-  <header className="topbar"><Brand/><nav className="nav"><a href="#flow">How it works</a><a href="#modules">Modules</a><Link to="/login" className="btn btn-outline">Login</Link><Link to="/register" className="btn btn-primary">Get Started</Link></nav></header>
-  <section className="hero"><div><span className="eyebrow">NGO VOLUNTEER–SKILL MATCHING SYSTEM</span><h1>Right volunteer.<br/><span>Right NGO.</span><br/>Right time.</h1><p>A smart community platform where organisations post requirements, volunteers receive personalised recommendations, and NGOs choose the best-fit volunteers after they accept.</p><div className="hero-actions"><Link to="/register" className="btn btn-primary">Join the platform →</Link><a href="#flow" className="btn btn-soft">See the workflow</a></div></div><div className="hero-visual"><div className="demo-window"><div className="demo-head"><b>Recommended for you</b><span>3 matches</span></div><div className="demo-match"><span className="score">96%</span><b>Community Teaching Drive</b><small>Udaan Education Trust</small><p>📍 Pune &nbsp; 📅 18 Sep &nbsp; ⏰ 9 AM</p><div className="tags"><span className="tag">Teaching</span><span className="tag">Communication</span><span className="tag">Weekdays</span></div><Link to="/opportunities" className="btn btn-primary btn-block">View opportunity</Link></div></div></div></section>
-  <section id="flow" className="section"><div className="section-head"><span className="eyebrow">END-TO-END WORKFLOW</span><h2>Two-sided matching, then final selection</h2><p>The platform recommends relevant opportunities first; the organisation then reviews accepted volunteers and makes the final selection.</p></div><div className="grid4">{[['01','Organisation posts','Skills, domain, date, time, location, availability and task details.'],['02','Volunteer accepts','Matching recommends relevant opportunities based on profile and availability.'],['03','NGO reviews','Organisation sees accepted volunteers and checks profiles and previous assignments.'],['04','Final assignment','Selected volunteer receives the confirmed task, date, time and location.']].map(x=><div className="card" key={x[0]}><div className="stepnum">{x[0]}</div><h3>{x[1]}</h3><p>{x[2]}</p></div>)}</div></section>
-  <section id="modules" className="section" style={{background:'#eef4fa'}}><div className="section-head"><span className="eyebrow">CORE MODULES</span><h2>Built around your project scope</h2></div><div className="grid4">{[['👤','Volunteer Profile','Skills, domain, availability and participation history.'],['🏢','Requirements','NGOs create detailed volunteer requirements.'],['🎯','Smart Matching','Matches skills, domain, availability and location.'],['📋','Assignment History','Tracks accepted, selected and completed participation.']].map(x=><div className="card" key={x[1]}><h3>{x[0]} {x[1]}</h3><p>{x[2]}</p></div>)}</div></section>
-  <section className="cta"><span className="eyebrow">COMMUNITY ENGAGEMENT MINI PROJECT 2026–27</span><h2>From opportunity to meaningful participation.</h2><p>VolunteerLink connects volunteers and NGOs through skills, availability and requirements.</p><Link to="/register" className="btn btn-primary">Start Demo →</Link></section><footer className="footer">VolunteerLink • NGO Volunteer–Skill Matching System</footer>
- </>
+const STORAGE = {
+    users: 'volunteerlink_users',
+    currentUser: 'volunteerlink_current_user',
+    requirements: 'volunteerlink_requirements',
+    interests: 'volunteerlink_interests',
+    assignments: 'volunteerlink_assignments',
+    history: 'volunteerlink_history',
 }
 
-function AuthShell({children,wide=false}){ return <div className="auth"><div className="auth-shell" style={wide?{maxWidth:720}:{}}><div className="auth-top"><Brand dark/><Link to="/">← Home</Link></div>{children}</div></div> }
-function Login(){
- const [role,setRole]=useState('volunteer');
- const [email,setEmail]=useState('');
- const [password,setPassword]=useState('');
- const [error,setError]=useState('');
-
- const submit=(e)=>{
-   e.preventDefault();
-   setError('');
-   const users=JSON.parse(localStorage.getItem('volunteerlink_users')||'[]');
-   const user=users.find(u=>u.email.toLowerCase()===email.trim().toLowerCase() && u.password===password && u.role===role);
-   if(!user){
-     setError('Invalid email, password, or account type.');
-     return;
-   }
-   localStorage.setItem('volunteerlink_current_user', JSON.stringify(user));
-   go(role==='ngo'?'/ngo-dashboard':'/volunteer-dashboard');
- };
-
- return <AuthShell>
-   <div className="auth-card">
-     <div className="auth-info">
-       <span className="eyebrow">WELCOME BACK</span>
-       <h1>Continue your community journey.</h1>
-       <p>Volunteers discover opportunities. NGO administrators review and assign the best-fit candidates.</p>
-     </div>
-     <form className="form" onSubmit={submit}>
-       <h2>Sign in</h2>
-       <p className="muted">Use the account you created on VolunteerLink.</p>
-       <label>Email<input type="email" required placeholder="you@example.com" value={email} onChange={e=>setEmail(e.target.value)}/></label>
-       <label>Password<input type="password" required placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)}/></label>
-       <label>Login as<select value={role} onChange={e=>setRole(e.target.value)}>
-         <option value="volunteer">Volunteer</option>
-         <option value="ngo">Organisation / NGO</option>
-       </select></label>
-       {error && <div style={{background:'#fff0f0',color:'#b42318',padding:'10px',borderRadius:8,fontSize:12}}>{error}</div>}
-       <button className="btn btn-primary btn-block">Sign in →</button>
-       <p style={{textAlign:'center',marginTop:18,fontSize:12}}>New here? <Link to="/register" style={{color:'#2563eb',fontWeight:700}}>Create account</Link></p>
-     </form>
-   </div>
- </AuthShell>
+function readStorage(key, fallback = []) {
+    try {
+        const value = localStorage.getItem(key)
+        return value ? JSON.parse(value) : fallback
+    } catch {
+        return fallback
+    }
 }
-function Register(){
- const [role,setRole]=useState('volunteer');
- const [form,setForm]=useState({
-   name:'', email:'', phone:'', password:'', location:'Pune',
-   availability:'Weekdays', skills:'', organisation:'', domain:''
- });
- const [error,setError]=useState('');
 
- const update=(key,value)=>setForm({...form,[key]:value});
+function writeStorage(key, value) {
+    localStorage.setItem(key, JSON.stringify(value))
 
- const submit=(e)=>{
-   e.preventDefault();
-   setError('');
-   const users=JSON.parse(localStorage.getItem('volunteerlink_users')||'[]');
-   const email=form.email.trim().toLowerCase();
-   if(users.some(u=>u.email.toLowerCase()===email)){
-     setError('An account with this email already exists. Please login.');
-     return;
-   }
-   const user={
-     id:Date.now(),
-     role,
-     name:form.name.trim(),
-     email,
-     phone:form.phone.trim(),
-     password:form.password,
-     location:form.location.trim(),
-     availability:form.availability,
-     skills:role==='volunteer'
-       ? form.skills.split(',').map(s=>s.trim()).filter(Boolean)
-       : [],
-     organisation:role==='ngo'?form.organisation.trim():'',
-     domain:role==='ngo'?form.domain.trim():''
-   };
-   users.push(user);
-   localStorage.setItem('volunteerlink_users',JSON.stringify(users));
-   alert('Account created successfully. Please login.');
-   go('/login');
- };
-
- return <AuthShell wide>
-   <form className="form" style={{borderRadius:20,background:'#fff'}} onSubmit={submit}>
-     <span className="eyebrow">CREATE ACCOUNT</span>
-     <h1>Join VolunteerLink</h1>
-     <p className="muted">Select how you will use the platform.</p>
-
-     <div className="role-picker">
-       <button type="button" className={'role '+(role==='volunteer'?'active':'')} onClick={()=>setRole('volunteer')}>
-         <b>👤 Volunteer</b><small>Find and accept opportunities</small>
-       </button>
-       <button type="button" className={'role '+(role==='ngo'?'active':'')} onClick={()=>setRole('ngo')}>
-         <b>🏢 Organisation / NGO</b><small>Post, review and assign</small>
-       </button>
-     </div>
-
-     <div className="two">
-       <label>Full name<input required value={form.name} onChange={e=>update('name',e.target.value)}/></label>
-       <label>Email<input type="email" required value={form.email} onChange={e=>update('email',e.target.value)}/></label>
-     </div>
-
-     <label>Phone<input required value={form.phone} onChange={e=>update('phone',e.target.value)}/></label>
-     <label>Password<input type="password" required minLength="4" value={form.password} onChange={e=>update('password',e.target.value)}/></label>
-
-     {role==='volunteer' ? <>
-       <div className="two">
-         <label>Location<input value={form.location} onChange={e=>update('location',e.target.value)} placeholder="Pune"/></label>
-         <label>Availability<select value={form.availability} onChange={e=>update('availability',e.target.value)}>
-           <option>Weekdays</option><option>Weekends</option><option>Flexible</option>
-         </select></label>
-       </div>
-       <label>Skills / domain
-         <input required value={form.skills} onChange={e=>update('skills',e.target.value)} placeholder="Teaching, Design, Social Work"/>
-         <small style={{display:'block',color:'#7b899a',fontWeight:400,marginTop:5}}>Enter skills separated by commas.</small>
-       </label>
-     </> : <>
-       <label>Organisation name<input required value={form.organisation} onChange={e=>update('organisation',e.target.value)} placeholder="NGO name"/></label>
-       <label>Focus domain<input value={form.domain} onChange={e=>update('domain',e.target.value)} placeholder="Education, Environment, Health"/></label>
-     </>}
-
-     <label><input type="checkbox" required style={{width:'auto',display:'inline-block',marginRight:6}}/> I agree to the demo terms.</label>
-     {error && <div style={{background:'#fff0f0',color:'#b42318',padding:'10px',borderRadius:8,fontSize:12}}>{error}</div>}
-     <button className="btn btn-primary btn-block">Create account →</button>
-   </form>
- </AuthShell>
+    // Tell the current React app that data changed
+    window.dispatchEvent(
+        new CustomEvent('volunteerlink-data-change')
+    )
 }
-function Sidebar({ngo=false,active=''}){ 
- const current=JSON.parse(localStorage.getItem('volunteerlink_current_user')||'null');
- const volunteerName=current?.role==='volunteer'?current.name:'Ananya Sharma';
- const ngoName=current?.role==='ngo'?(current.organisation||current.name):'Seva Foundation';
- const displayName=ngo?ngoName:volunteerName;
- const initials=(displayName||'User').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
-
- const items=ngo
- ?[['/ngo-dashboard','⌂','Dashboard'],['/requirements','＋','Post Requirements'],['/ngo-requirements','▤','My Requirements'],['/ngo-interested','◎','Interested Volunteers'],['/ngo-assignments','✓','Assignments'],['/history','◷','History & Reports']]
- :[['/volunteer-dashboard','⌂','Dashboard'],['/volunteer-profile','◉','My Profile'],['/opportunities','◎','Recommended Opportunities'],['/volunteer-accepted','✓','My Accepted'],['/volunteer-assignments','▣','My Assignments'],['/history','◷','Participation History']];
-
- const logout=()=>{localStorage.removeItem('volunteerlink_current_user');go('/');};
-
- return <aside className="sidebar">
-   <Brand/>
-   <div className="user-mini">
-     <div className={'avatar '+(ngo?'org':'')}>{initials}</div>
-     <div><b>{displayName}</b><small>{ngo?'Organisation Admin':'Volunteer'}</small></div>
-   </div>
-   <nav>{items.map(i=><Link key={i[0]} to={i[0]} className={active===i[0]?'active':''}>{i[1]} <span>{i[2]}</span></Link>)}</nav>
-   <button onClick={logout} className="logout" style={{border:0,background:'transparent',color:'inherit',textAlign:'left',cursor:'pointer'}}>↪ <span>Logout</span></button>
- </aside>
+function getCurrentUser() {
+    return readStorage(STORAGE.currentUser, null)
 }
-function Layout({ngo=false,active,children}){ return <div className="app-body"><Sidebar ngo={ngo} active={active}/><main className="main">{children}</main></div> }
-function Header({eyebrow,title,text,button}){ return <header className="header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div>{button}</header> }
 
-function VolunteerDashboard(){
- const user=JSON.parse(localStorage.getItem('volunteerlink_current_user')||'null');
- const name=user?.name||'Volunteer';
- const skills=(user?.skills||[]).map(s=>s.toLowerCase());
- const scored=opportunities.map(o=>{
-   const matched=o.skills.filter(s=>skills.includes(s.toLowerCase())).length;
-   const score=skills.length ? Math.max(55,Math.round((matched/o.skills.length)*100)) : o.score;
-   return {...o,score};
- }).sort((a,b)=>b.score-a.score);
-
- return <Layout active="/volunteer-dashboard">
-   <Header eyebrow="VOLUNTEER PORTAL" title={`Good evening, ${name} 👋`} text="Discover opportunities that fit your skills and availability." button={<Link to="/opportunities" className="btn btn-primary">View recommendations →</Link>}/>
-   <div className="content">
-     <section className="panel">
-       <div className="panel-head"><div><h2>Top recommendations</h2><p>Based on your skills + availability</p></div><Link to="/opportunities">View all</Link></div>
-       <div className="list">
-         {scored.slice(0,2).map(o=><div className="item" key={o.id}>
-           <div className="avatar">{o.ngo.slice(0,2).toUpperCase()}</div>
-           <div><b>{o.title}</b><small>{o.ngo} • {o.location} • {o.date} • {o.time}</small></div>
-           <div className="right"><b className="green">{o.score}%</b><small>Match</small></div>
-         </div>)}
-       </div>
-     </section>
-     <section className="panel">
-       <div className="panel-head"><div><h2>Your skills</h2><p>Used to personalize recommendations</p></div><Link to="/volunteer-profile">Edit</Link></div>
-       <div className="tags">{(user?.skills?.length?user.skills:['Add skills in your profile']).map(s=><span className="tag" key={s}>{s}</span>)}</div>
-       <p className="muted" style={{marginTop:18}}>Availability: <b>{user?.availability||'Not set'}</b></p>
-       <p className="muted">Location: <b>{user?.location||'Not set'}</b></p>
-     </section>
-   </div>
- </Layout>
+function getUsers() {
+    return readStorage(STORAGE.users, [])
 }
-function VolunteerProfile(){
- const user=JSON.parse(localStorage.getItem('volunteerlink_current_user')||'null');
- const name=user?.name||'Volunteer';
- const initials=name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
- return <Layout active="/volunteer-profile">
-   <Header eyebrow="MY PROFILE" title="Volunteer Profile" text="Your profile and skills are used for opportunity matching."/>
-   <div className="profile-grid">
-     <section className="panel">
-       <div className="profile-cover"></div>
-       <div className="profile-center">
-         <div className="avatar avatar-lg">{initials}</div>
-         <h2>{name}</h2>
-         <p>Volunteer • {user?.location||'Location not set'} • Available {user?.availability?.toLowerCase()||'as set'}</p>
-         <div className="profile-stats">
-           <span><b>0</b><small>Assignments</small></span>
-           <span><b>0</b><small>Hours</small></span>
-           <span><b>—</b><small>Rating</small></span>
-         </div>
-       </div>
-     </section>
-     <section className="panel">
-       <h2>Profile details</h2>
-       <div className="form">
-         <label>Full name<input value={user?.name||''} readOnly/></label>
-         <label>Email<input value={user?.email||''} readOnly/></label>
-         <label>Location<input value={user?.location||''} readOnly/></label>
-         <label>Availability<select value={user?.availability||'Weekdays'} readOnly onChange={()=>{}}><option>Weekdays</option><option>Weekends</option><option>Flexible</option></select></label>
-       </div>
-       <h3>Skills & domain</h3>
-       <div className="tags">{(user?.skills||[]).map(s=><span className="tag" key={s}>{s}</span>)}</div>
-     </section>
-   </div>
- </Layout>
+
+function getVolunteers() {
+    return getUsers().filter((user) => user.role === 'volunteer')
 }
-function Opportunities(){
- const user=JSON.parse(localStorage.getItem('volunteerlink_current_user')||'null');
- const skills=(user?.skills||[]).map(s=>s.toLowerCase());
- const [accepted,setAccepted]=useState(()=>JSON.parse(localStorage.getItem('volunteerlink_interests')||'[]'));
- const [query,setQuery]=useState('');
 
- const scored=opportunities.map(o=>{
-   const matched=o.skills.filter(s=>skills.includes(s.toLowerCase())).length;
-   const score=skills.length ? Math.max(55,Math.round((matched/o.skills.length)*100)) : o.score;
-   return {...o,score};
- }).filter(o=>o.title.toLowerCase().includes(query.toLowerCase())||o.ngo.toLowerCase().includes(query.toLowerCase()))
- .sort((a,b)=>b.score-a.score);
-
- const accept=(id)=>{
-   const next=[...new Set([...accepted,id])];
-   setAccepted(next);
-   localStorage.setItem('volunteerlink_interests',JSON.stringify(next));
- };
-
- return <Layout active="/opportunities">
-   <Header eyebrow="RECOMMENDED OPPORTUNITIES" title="Opportunities for you" text="Matches are based on your skills, domain, availability and location."/>
-   <div className="toolbar">
-     <div className="search">🔎<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search opportunities"/></div>
-     <select><option>All domains</option><option>Education</option><option>Environment</option></select>
-     <select><option>Best match</option><option>Latest</option></select>
-   </div>
-   <div className="grid4">
-     {scored.map(o=><article className="card" key={o.id}>
-       <span className="badge badge-green">{o.score}% match</span>
-       <h3 style={{marginTop:12}}>{o.title}</h3>
-       <p>{o.ngo}</p>
-       <p style={{fontSize:12,marginTop:8}}>📍 {o.location}<br/>📅 {o.date}<br/>⏰ {o.time}</p>
-       <div className="tags">{o.skills.map(s=><span className="tag" key={s}>{s}</span>)}</div>
-       <button className="btn btn-primary btn-block" onClick={()=>accept(o.id)}>
-         {accepted.includes(o.id)?'Interested ✓':'I’m Interested'}
-       </button>
-     </article>)}
-   </div>
- </Layout>
+function getRequirements() {
+    return readStorage(STORAGE.requirements, [])
 }
-function Accepted(){return <Layout active="/volunteer-accepted"><Header eyebrow="VOLUNTEER RESPONSES" title="My Accepted Opportunities" text="These are accepted by you and await the organisation's final decision."/><section className="panel"><div className="list">{opportunities.slice(0,2).map(o=><div className="item" key={o.id}><div className="avatar">{o.ngo.slice(0,2).toUpperCase()}</div><div><b>{o.title}</b><small>{o.ngo} • {o.location} • {o.date} • {o.time}</small></div><span className="badge badge-yellow">Awaiting NGO selection</span></div>)}</div></section></Layout>}
-function VolunteerAssignments(){return <Layout active="/volunteer-assignments"><Header eyebrow="MY ASSIGNMENTS" title="Confirmed Assignments" text="Tasks selected and confirmed by organisations."/><section className="panel"><div className="item"><div className="avatar">UT</div><div><b>Community Teaching Drive</b><small>Udaan Education Trust • Pune • 18 Sep 2026 • 9 AM–1 PM</small><small>Support school students through a community teaching session.</small></div><span className="badge badge-green">Confirmed</span></div></section></Layout>}
-function History(){return <Layout active="/history"><Header eyebrow="PARTICIPATION HISTORY" title="History & Reports" text="Track completed participation and volunteer activity."/><div className="metric-grid"><div className="metric"><span>Assignments</span><b>12</b></div><div className="metric"><span>Completed</span><b>10</b></div><div className="metric"><span>Volunteer hours</span><b>42</b></div><div className="metric"><span>Rating</span><b>4.9</b></div></div><section className="panel"><div className="history-row"><div className="history-icon">✓</div><div><b>Community Teaching Drive</b><small>Udaan Education Trust • 18 Aug 2026 • 6 hours</small></div><span className="badge badge-green">Completed</span></div><div className="history-row"><div className="history-icon">✓</div><div><b>Digital Literacy Workshop</b><small>TechForAll NGO • 03 Aug 2026 • 7 hours</small></div><span className="badge badge-green">Completed</span></div></section></Layout>}
 
-function NgoDashboard(){return <Layout ngo active="/ngo-dashboard"><Header eyebrow="ORGANISATION PORTAL" title="Good evening, Seva Foundation 👋" text="Manage requirements, review volunteers and confirm assignments." button={<Link to="/requirements" className="btn btn-primary">Post requirement →</Link>}/><div className="metric-grid"><div className="metric"><span>Active requirements</span><b>4</b></div><div className="metric"><span>Interested volunteers</span><b>18</b></div><div className="metric"><span>Assignments</span><b>18</b></div><div className="metric"><span>Completed</span><b>14</b></div></div><div className="content"><section className="panel"><div className="panel-head"><div><h2>Recent requirements</h2><p>Your active volunteer needs</p></div><Link to="/ngo-requirements">View all</Link></div><div className="list">{['Community Teaching Drive','Digital Awareness Campaign','Tree Plantation Support'].map((x,i)=><div className="item" key={x}><div><b>{x}</b><small>{i===0?'4 needed • 3 accepted • Pune':'6 needed • accepting responses'}</small></div><span className="badge badge-blue">Active</span></div>)}</div></section><section className="panel"><div className="panel-head"><div><h2>Pending selection</h2><p>Volunteers waiting for review</p></div></div><div className="list"><div className="item"><div className="avatar">AS</div><div><b>Ananya Sharma</b><small>96% match • Teaching • Pune</small></div><Link to="/ngo-interested" className="action">Review</Link></div><div className="item"><div className="avatar">KS</div><div><b>Kabir Shah</b><small>88% match • Teaching • Pune</small></div><Link to="/ngo-interested" className="action">Review</Link></div></div></section></div></Layout>}
-function Requirements(){const [posted,setPosted]=useState(false);return <Layout ngo active="/requirements"><Header eyebrow="POST REQUIREMENT" title="Create a volunteer requirement" text="Describe the task so the matching system can find suitable volunteers."/><section className="panel" style={{maxWidth:850}}><div className="two"><label>Requirement title<input placeholder="Community Teaching Drive"/></label><label>Volunteers needed<input type="number" defaultValue="4"/></label></div><div className="two"><label>Domain<select><option>Education</option><option>Environment</option><option>Health</option></select></label><label>Location<input placeholder="Pune"/></label></div><div className="two"><label>Date<input type="date"/></label><label>Time<input type="text" placeholder="9 AM – 1 PM"/></label></div><label>Required skills<input placeholder="Teaching, Communication"/></label><label>Task description<textarea rows="5" placeholder="Describe the volunteer activity..."></textarea></label><button className="btn btn-primary" onClick={()=>setPosted(true)}>{posted?'Requirement posted ✓':'Post requirement →'}</button>{posted&&<span className="badge badge-green" style={{marginLeft:10}}>Saved for demo</span>}</section></Layout>}
-function MyRequirements(){return <Layout ngo active="/ngo-requirements"><Header eyebrow="MY REQUIREMENTS" title="Requirements" text="Manage requirements posted by your organisation."/><section className="panel"><table className="table"><thead><tr><th>Requirement</th><th>Needed</th><th>Accepted</th><th>Status</th></tr></thead><tbody>{[['Community Teaching Drive','4','3'],['Digital Awareness Campaign','6','4'],['Tree Plantation Support','5','2']].map(r=><tr key={r[0]}><td><b>{r[0]}</b></td><td>{r[1]}</td><td>{r[2]}</td><td><span className="badge badge-blue">Active</span></td></tr>)}</tbody></table></section></Layout>}
-function Interested(){const [assigned,setAssigned]=useState('');return <Layout ngo active="/ngo-interested"><Header eyebrow="VOLUNTEER SELECTION" title="Interested Volunteers" text="Review volunteers who accepted your requirement."/><section className="panel" style={{marginBottom:16}}><b>Community Teaching Drive</b><p>4 needed • 3 volunteers accepted • Pune • 18 Sep 2026 • 9 AM–1 PM</p></section><div className="match-grid"><aside className="panel filters"><h3>Compare</h3><label>Skill<select><option>Teaching</option><option>Communication</option></select></label><label>Sort<select><option>Best fit</option><option>Experience</option><option>Match score</option></select></label></aside><section>{applicants.map(a=><article className="match-card" key={a.name}><div className="match-top"><div className="avatar">{a.initials}</div><div><h3>{a.name}</h3><p>{a.location} • {a.availability} • {a.assignments} previous assignments</p></div><div className="big-score">{a.score}%</div></div><div className="tags">{a.skills.map(s=><span className="tag" key={s}>✓ {s}</span>)}<span className="tag">{a.assignments} assignments</span><span className="tag">{a.hours} hours</span></div><p><b>Previous experience:</b> {a.experience}</p><div className="actions"><Link to="/volunteer-view" className="btn btn-soft">View full profile</Link><button className="btn btn-primary" onClick={()=>setAssigned(a.name)}>Select & Assign</button></div></article>)}{assigned&&<div className="toast show">{assigned} selected. Final assignment created.</div>}</section></div></Layout>}
-function VolunteerView(){return <Layout ngo active="/ngo-interested"><Header eyebrow="VOLUNTEER PROFILE REVIEW" title="Ananya Sharma" text="Volunteer • Pune • Available weekdays" button={<Link to="/ngo-interested" className="btn btn-soft">← Back to applicants</Link>}/><section className="panel"><div className="profile-center"><div className="avatar avatar-lg">AS</div><h1>Ananya Sharma</h1><p>Volunteer • Pune • Available weekdays</p><div className="profile-stats"><span><b>12</b><small>Previous assignments</small></span><span><b>42</b><small>Hours contributed</small></span><span><b>4.9</b><small>Rating</small></span></div></div><hr style={{border:0,borderTop:'1px solid #edf1f5',margin:'20px 0'}}/><h2>Skills & domain</h2><div className="tags">{applicants[0].skills.concat(['Education']).map(s=><span className="tag" key={s}>{s}</span>)}</div><h2 style={{marginTop:25}}>Previous assignments</h2><div className="list">{['Community Teaching Drive','Digital Literacy Workshop','School Support Programme'].map(x=><div className="item" key={x}><div><b>{x}</b><small>Completed • 6 hours</small></div><span className="badge badge-green">Completed</span></div>)}</div><button className="btn btn-primary" style={{marginTop:22}} onClick={()=>go('/ngo-assignments')}>Select this volunteer</button></section></Layout>}
-function NgoAssignments(){return <Layout ngo active="/ngo-assignments"><Header eyebrow="ASSIGNMENT MANAGEMENT" title="Final Assignments" text="Confirmed tasks sent to selected volunteers."/><section className="panel"><div className="item"><div className="avatar">AS</div><div><b>Ananya Sharma</b><small>Community Teaching Drive • Udaan Education Trust</small><small>📅 18 Sep 2026 • ⏰ 9 AM–1 PM • 📍 Pune</small><small>Task: Support school students through a community teaching session.</small></div><span className="badge badge-green">Assigned</span></div></section></Layout>}
+function getInterests() {
+    return readStorage(STORAGE.interests, [])
+}
 
-function App(){
- const [path,setPath]=useState(window.location.hash.slice(1)||'/')
- window.onhashchange=()=>setPath(window.location.hash.slice(1)||'/')
- const current=JSON.parse(localStorage.getItem('volunteerlink_current_user')||'null')
- const protectedVolunteer=['/volunteer-dashboard','/volunteer-profile','/opportunities','/volunteer-accepted','/volunteer-assignments','/history']
- const protectedNgo=['/ngo-dashboard','/requirements','/ngo-requirements','/ngo-interested','/ngo-assignments']
- if(protectedVolunteer.includes(path) && (!current || current.role!=='volunteer')) return <Login/>
- if(protectedNgo.includes(path) && (!current || current.role!=='ngo')) return <Login/>
- const pages={'/':<Home/>,'/login':<Login/>,'/register':<Register/>,'/volunteer-dashboard':<VolunteerDashboard/>,'/volunteer-profile':<VolunteerProfile/>,'/opportunities':<Opportunities/>,'/volunteer-accepted':<Accepted/>,'/volunteer-assignments':<VolunteerAssignments/>,'/history':<History/>,'/ngo-dashboard':<NgoDashboard/>,'/requirements':<Requirements/>,'/ngo-requirements':<MyRequirements/>,'/ngo-interested':<Interested/>,'/volunteer-view':<VolunteerView/>,'/ngo-assignments':<NgoAssignments/>}
- return pages[path] || <Home/>
+function getAssignments() {
+    return readStorage(STORAGE.assignments, [])
+}
+
+function getHistory() {
+    return readStorage(STORAGE.history, [])
+}
+
+function makeId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function go(path) {
+    window.location.hash = path
+}
+
+function Link({ to, children, className = '', ...props }) {
+    return (
+        <a href={`#${to}`} className={className} {...props}>
+            {children}
+        </a>
+    )
+}
+
+function Brand({ dark = false }) {
+    return (
+        <Link
+            to="/"
+            className="brand"
+            style={dark ? { color: '#fff' } : {}}
+        >
+            <span className="brand-mark">🤝</span>
+            <span>
+        Volunteer<span>Link</span>
+      </span>
+        </Link>
+    )
+}
+
+function Home() {
+    return (
+        <>
+            <header className="topbar">
+                <Brand />
+                <nav className="nav">
+                    <a href="#flow">How it works</a>
+                    <a href="#modules">Modules</a>
+                    <Link to="/login" className="btn btn-outline">Login</Link>
+                    <Link to="/register" className="btn btn-primary">Get Started</Link>
+                </nav>
+            </header>
+
+            <section className="hero">
+                <div>
+                    <span className="eyebrow">NGO VOLUNTEER–SKILL MATCHING SYSTEM</span>
+                    <h1>
+                        Right volunteer.
+                        <br />
+                        <span>Right NGO.</span>
+                        <br />
+                        Right time.
+                    </h1>
+                    <p>
+                        A community platform where organisations post requirements,
+                        volunteers receive recommendations, and NGOs select volunteers
+                        based on their profiles and responses.
+                    </p>
+                    <div className="hero-actions">
+                        <Link to="/register" className="btn btn-primary">Join the platform →</Link>
+                        <a href="#flow" className="btn btn-soft">See the workflow</a>
+                    </div>
+                </div>
+
+                <div className="hero-visual">
+                    <div className="demo-window">
+                        <div className="demo-head">
+                            <b>VolunteerLink</b>
+                            <span>Live platform</span>
+                        </div>
+                        <div className="demo-match">
+                            <b>Connect volunteers with NGO requirements</b>
+                            <small>Register → create profile → match → respond → assign</small>
+                            <p>All application data is created by users.</p>
+                            <Link to="/register" className="btn btn-primary btn-block">
+                                Create account
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="flow" className="section">
+                <div className="section-head">
+                    <span className="eyebrow">END-TO-END WORKFLOW</span>
+                    <h2>Two-sided matching and assignment</h2>
+                    <p>
+                        NGOs create requirements. Volunteers maintain their profiles and
+                        respond to suitable opportunities. NGOs then review and assign.
+                    </p>
+                </div>
+
+                <div className="grid4">
+                    {[
+                        ['01', 'Organisation posts', 'Skills, domain, date, time, location, availability and task details.'],
+                        ['02', 'Volunteer responds', 'Requirements are matched against the volunteer profile and the volunteer can express interest.'],
+                        ['03', 'NGO reviews', 'The organisation sees volunteers who responded to its requirement and reviews their profiles.'],
+                        ['04', 'Final assignment', 'The selected volunteer receives a confirmed assignment.'],
+                    ].map((x) => (
+                        <div className="card" key={x[0]}>
+                            <div className="stepnum">{x[0]}</div>
+                            <h3>{x[1]}</h3>
+                            <p>{x[2]}</p>
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <section id="modules" className="section" style={{ background: '#eef4fa' }}>
+                <div className="section-head">
+                    <span className="eyebrow">CORE MODULES</span>
+                    <h2>Built around the project scope</h2>
+                </div>
+                <div className="grid4">
+                    {[
+                        ['👤', 'Volunteer Profile', 'Skills, location, availability and profile information.'],
+                        ['🏢', 'Requirements', 'NGOs create and manage volunteer requirements.'],
+                        ['🎯', 'Matching', 'Requirements are compared with volunteer skills and availability.'],
+                        ['📋', 'Assignments & History', 'Tracks accepted responses and confirmed participation.'],
+                    ].map((x) => (
+                        <div className="card" key={x[1]}>
+                            <h3>{x[0]} {x[1]}</h3>
+                            <p>{x[2]}</p>
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <section className="cta">
+                <span className="eyebrow">VOLUNTEERLINK</span>
+                <h2>From opportunity to meaningful participation.</h2>
+                <p>Register as a volunteer or organisation to start using the system.</p>
+                <Link to="/register" className="btn btn-primary">Start →</Link>
+            </section>
+
+            <footer className="footer">VolunteerLink • NGO Volunteer–Skill Matching System</footer>
+        </>
+    )
+}
+
+function AuthShell({ children, wide = false }) {
+    return (
+        <div className="auth">
+            <div className="auth-shell" style={wide ? { maxWidth: 720 } : {}}>
+                <div className="auth-top">
+                    <Brand dark />
+                    <Link to="/">← Home</Link>
+                </div>
+                {children}
+            </div>
+        </div>
+    )
+}
+
+function Login() {
+    const [role, setRole] = useState('volunteer')
+    const [email, setEmail] = useState('')
+    const [password, setPassword] = useState('')
+    const [error, setError] = useState('')
+
+    const submit = (e) => {
+        e.preventDefault()
+        setError('')
+
+        const users = getUsers()
+        const user = users.find(
+            (u) =>
+                u.email.toLowerCase() === email.trim().toLowerCase() &&
+                u.password === password &&
+                u.role === role,
+        )
+
+        if (!user) {
+            setError('Invalid email, password, or account type.')
+            return
+        }
+
+        writeStorage(STORAGE.currentUser, user)
+        go(role === 'ngo' ? '/ngo-dashboard' : '/volunteer-dashboard')
+    }
+
+    return (
+        <AuthShell>
+            <div className="auth-card">
+                <div className="auth-info">
+                    <span className="eyebrow">WELCOME BACK</span>
+                    <h1>Continue your community journey.</h1>
+                    <p>
+                        Volunteers discover opportunities. Organisations review responses
+                        and manage assignments.
+                    </p>
+                </div>
+
+                <form className="form" onSubmit={submit}>
+                    <h2>Sign in</h2>
+                    <p className="muted">Use the account you created on VolunteerLink.</p>
+
+                    <label>
+                        Email
+                        <input
+                            type="email"
+                            required
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="you@example.com"
+                        />
+                    </label>
+
+                    <label>
+                        Password
+                        <input
+                            type="password"
+                            required
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="••••••••"
+                        />
+                    </label>
+
+                    <label>
+                        Login as
+                        <select value={role} onChange={(e) => setRole(e.target.value)}>
+                            <option value="volunteer">Volunteer</option>
+                            <option value="ngo">Organisation / NGO</option>
+                        </select>
+                    </label>
+
+                    {error && <div className="form-error">{error}</div>}
+
+                    <button className="btn btn-primary btn-block">Sign in →</button>
+
+                    <p style={{ textAlign: 'center', marginTop: 18, fontSize: 12 }}>
+                        New here?{' '}
+                        <Link to="/register" style={{ color: '#2563eb', fontWeight: 700 }}>
+                            Create account
+                        </Link>
+                    </p>
+                </form>
+            </div>
+        </AuthShell>
+    )
+}
+
+function Register() {
+    const [role, setRole] = useState('volunteer')
+    const [form, setForm] = useState({
+        name: '',
+        email: '',
+        phone: '',
+        password: '',
+        location: '',
+        availability: 'Weekdays',
+        skills: '',
+        organisation: '',
+        domain: '',
+    })
+    const [error, setError] = useState('')
+
+    const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+
+    const submit = (e) => {
+        e.preventDefault()
+        setError('')
+
+        const users = getUsers()
+        const email = form.email.trim().toLowerCase()
+
+        if (users.some((u) => u.email.toLowerCase() === email)) {
+            setError('An account with this email already exists. Please login.')
+            return
+        }
+
+        const user = {
+            id: makeId('user'),
+            role,
+            name: form.name.trim(),
+            email,
+            phone: form.phone.trim(),
+            password: form.password,
+            location: form.location.trim(),
+            availability: form.availability,
+            skills:
+                role === 'volunteer'
+                    ? form.skills.split(',').map((s) => s.trim()).filter(Boolean)
+                    : [],
+            organisation: role === 'ngo' ? form.organisation.trim() : '',
+            domain: role === 'ngo' ? form.domain.trim() : '',
+            createdAt: new Date().toISOString(),
+        }
+
+        users.push(user)
+        writeStorage(STORAGE.users, users)
+        alert('Account created successfully. Please login.')
+        go('/login')
+    }
+
+    return (
+        <AuthShell wide>
+            <form className="form" style={{ borderRadius: 20, background: '#fff' }} onSubmit={submit}>
+                <span className="eyebrow">CREATE ACCOUNT</span>
+                <h1>Join VolunteerLink</h1>
+                <p className="muted">Create an account based on how you will use the platform.</p>
+
+                <div className="role-picker">
+                    <button
+                        type="button"
+                        className={`role ${role === 'volunteer' ? 'active' : ''}`}
+                        onClick={() => setRole('volunteer')}
+                    >
+                        <b>👤 Volunteer</b>
+                        <small>Find and respond to opportunities</small>
+                    </button>
+                    <button
+                        type="button"
+                        className={`role ${role === 'ngo' ? 'active' : ''}`}
+                        onClick={() => setRole('ngo')}
+                    >
+                        <b>🏢 Organisation / NGO</b>
+                        <small>Post requirements and select volunteers</small>
+                    </button>
+                </div>
+
+                <div className="two">
+                    <label>
+                        Full name
+                        <input required value={form.name} onChange={(e) => update('name', e.target.value)} />
+                    </label>
+                    <label>
+                        Email
+                        <input type="email" required value={form.email} onChange={(e) => update('email', e.target.value)} />
+                    </label>
+                </div>
+
+                <label>
+                    Phone
+                    <input required value={form.phone} onChange={(e) => update('phone', e.target.value)} />
+                </label>
+
+                <label>
+                    Password
+                    <input type="password" required minLength="4" value={form.password} onChange={(e) => update('password', e.target.value)} />
+                </label>
+
+                {role === 'volunteer' ? (
+                    <>
+                        <div className="two">
+                            <label>
+                                Location
+                                <input required value={form.location} onChange={(e) => update('location', e.target.value)} placeholder="Mumbai" />
+                            </label>
+                            <label>
+                                Availability
+                                <select value={form.availability} onChange={(e) => update('availability', e.target.value)}>
+                                    <option>Weekdays</option>
+                                    <option>Weekends</option>
+                                    <option>Flexible</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <label>
+                            Skills / domain
+                            <input
+                                required
+                                value={form.skills}
+                                onChange={(e) => update('skills', e.target.value)}
+                                placeholder="Teaching, Design, Social Work"
+                            />
+                            <small className="field-help">Enter multiple skills separated by commas.</small>
+                        </label>
+                    </>
+                ) : (
+                    <>
+                        <label>
+                            Organisation name
+                            <input required value={form.organisation} onChange={(e) => update('organisation', e.target.value)} />
+                        </label>
+                        <label>
+                            Focus domain
+                            <input value={form.domain} onChange={(e) => update('domain', e.target.value)} placeholder="Education, Environment, Health" />
+                        </label>
+                    </>
+                )}
+
+                <label className="checkbox-label">
+                    <input type="checkbox" required />
+                    I agree to use the VolunteerLink platform.
+                </label>
+
+                {error && <div className="form-error">{error}</div>}
+
+                <button className="btn btn-primary btn-block">Create account →</button>
+            </form>
+        </AuthShell>
+    )
+}
+
+function Sidebar({ ngo = false, active = '' }) {
+    const current = getCurrentUser()
+
+    const displayName = ngo
+        ? current?.organisation || current?.name || 'Organisation'
+        : current?.name || 'Volunteer'
+
+    const initials = displayName
+        .split(' ')
+        .map((x) => x[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+
+    const items = ngo
+        ? [
+            ['/ngo-dashboard', '⌂', 'Dashboard'],
+            ['/requirements', '＋', 'Post Requirements'],
+            ['/ngo-requirements', '▤', 'My Requirements'],
+            ['/ngo-interested', '◎', 'Interested Volunteers'],
+            ['/ngo-assignments', '✓', 'Assignments'],
+            ['/history', '◷', 'History & Reports'],
+        ]
+        : [
+            ['/volunteer-dashboard', '⌂', 'Dashboard'],
+            ['/volunteer-profile', '◉', 'My Profile'],
+            ['/opportunities', '◎', 'Recommended Opportunities'],
+            ['/volunteer-accepted', '✓', 'My Accepted'],
+            ['/volunteer-assignments', '▣', 'My Assignments'],
+            ['/history', '◷', 'Participation History'],
+        ]
+
+    const logout = () => {
+        localStorage.removeItem(STORAGE.currentUser)
+        go('/')
+    }
+
+    return (
+        <aside className="sidebar">
+            <Brand />
+            <div className="user-mini">
+                <div className={`avatar ${ngo ? 'org' : ''}`}>{initials}</div>
+                <div>
+                    <b>{displayName}</b>
+                    <small>{ngo ? 'Organisation Admin' : 'Volunteer'}</small>
+                </div>
+            </div>
+
+            <nav>
+                {items.map((item) => (
+                    <Link key={item[0]} to={item[0]} className={active === item[0] ? 'active' : ''}>
+                        {item[1]} <span>{item[2]}</span>
+                    </Link>
+                ))}
+            </nav>
+
+            <button onClick={logout} className="logout">↪ <span>Logout</span></button>
+        </aside>
+    )
+}
+
+function Layout({ ngo = false, active, children }) {
+    return (
+        <div className="app-body">
+            <Sidebar ngo={ngo} active={active} />
+            <main className="main">{children}</main>
+        </div>
+    )
+}
+
+function Header({ eyebrow, title, text, button }) {
+    return (
+        <header className="header">
+            <div>
+                <span className="eyebrow">{eyebrow}</span>
+                <h1>{title}</h1>
+                <p>{text}</p>
+            </div>
+            {button}
+        </header>
+    )
+}
+
+function calculateMatch(requirement, volunteer) {
+    const volunteerSkills = (volunteer?.skills || []).map((s) => s.toLowerCase().trim())
+    const requiredSkills = (requirement?.skills || []).map((s) => s.toLowerCase().trim())
+
+    const matchedSkills = requiredSkills.filter((skill) => volunteerSkills.includes(skill))
+    const skillScore = requiredSkills.length
+        ? Math.round((matchedSkills.length / requiredSkills.length) * 70)
+        : 0
+
+    const availabilityMatch =
+        requirement.availability && volunteer.availability &&
+        requirement.availability.toLowerCase() === volunteer.availability.toLowerCase()
+            ? 15
+            : 0
+
+    const locationMatch =
+        requirement.location && volunteer.location &&
+        requirement.location.toLowerCase() === volunteer.location.toLowerCase()
+            ? 15
+            : 0
+
+    return Math.min(100, skillScore + availabilityMatch + locationMatch)
+}
+
+function VolunteerDashboard() {
+    const user = getCurrentUser()
+    const requirements = getRequirements().filter((r) => r.status !== 'closed')
+
+    const scored = requirements
+        .map((requirement) => ({
+            ...requirement,
+            score: calculateMatch(requirement, user),
+        }))
+        .sort((a, b) => b.score - a.score)
+
+    return (
+        <Layout active="/volunteer-dashboard">
+            <Header
+                eyebrow="VOLUNTEER PORTAL"
+                title={`Welcome, ${user?.name || 'Volunteer'} 👋`}
+                text="Discover opportunities that fit your skills and availability."
+                button={<Link to="/opportunities" className="btn btn-primary">View recommendations →</Link>}
+            />
+
+            <div className="metric-grid">
+                <div className="metric"><span>Available opportunities</span><b>{requirements.length}</b></div>
+                <div className="metric"><span>My responses</span><b>{getInterests().filter((i) => i.volunteerId === user?.id).length}</b></div>
+                <div className="metric"><span>Assignments</span><b>{getAssignments().filter((a) => a.volunteerId === user?.id).length}</b></div>
+                <div className="metric"><span>Completed</span><b>{getHistory().filter((h) => h.volunteerId === user?.id).length}</b></div>
+            </div>
+
+            <div className="content">
+                <section className="panel">
+                    <div className="panel-head">
+                        <div>
+                            <h2>Recommended opportunities</h2>
+                            <p>Calculated from your profile.</p>
+                        </div>
+                        <Link to="/opportunities">View all</Link>
+                    </div>
+
+                    {scored.length === 0 ? (
+                        <EmptyState title="No opportunities available yet" text="NGOs will appear here after they post requirements." />
+                    ) : (
+                        <div className="list">
+                            {scored.slice(0, 3).map((o) => (
+                                <div className="item" key={o.id}>
+                                    <div className="avatar">{(o.ngoName || 'NG').slice(0, 2).toUpperCase()}</div>
+                                    <div>
+                                        <b>{o.title}</b>
+                                        <small>{o.ngoName} • {o.location} • {o.date}</small>
+                                    </div>
+                                    <div className="right">
+                                        <b className="green">{o.score}%</b>
+                                        <small>Match</small>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </section>
+
+                <section className="panel">
+                    <div className="panel-head">
+                        <div>
+                            <h2>Your profile</h2>
+                            <p>Used for matching.</p>
+                        </div>
+                        <Link to="/volunteer-profile">Edit</Link>
+                    </div>
+                    <div className="tags">
+                        {(user?.skills || []).length ? user.skills.map((s) => <span className="tag" key={s}>{s}</span>) : <span className="muted">No skills added.</span>}
+                    </div>
+                    <p className="muted" style={{ marginTop: 18 }}>Availability: <b>{user?.availability || 'Not set'}</b></p>
+                    <p className="muted">Location: <b>{user?.location || 'Not set'}</b></p>
+                </section>
+            </div>
+        </Layout>
+    )
+}
+
+function EmptyState({ title, text }) {
+    return (
+        <div className="empty-state">
+            <h3>{title}</h3>
+            <p className="muted">{text}</p>
+        </div>
+    )
+}
+
+function VolunteerProfile() {
+    const [user, setUser] = useState(getCurrentUser)
+    const [editing, setEditing] = useState(false)
+    const [form, setForm] = useState({
+        name: user?.name || '',
+        email: user?.email || '',
+        phone: user?.phone || '',
+        location: user?.location || '',
+        availability: user?.availability || 'Weekdays',
+        skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
+    })
+
+    const initials = (user?.name || 'Volunteer')
+        .split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()
+
+    const startEditing = () => {
+        setForm({
+            name: user?.name || '',
+            email: user?.email || '',
+            phone: user?.phone || '',
+            location: user?.location || '',
+            availability: user?.availability || 'Weekdays',
+            skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
+        })
+        setEditing(true)
+    }
+
+    const saveProfile = () => {
+        const updatedUser = {
+            ...user,
+            name: form.name.trim(),
+            phone: form.phone.trim(),
+            location: form.location.trim(),
+            availability: form.availability,
+            skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
+        }
+
+        const users = getUsers().map((u) => u.id === updatedUser.id ? updatedUser : u)
+        writeStorage(STORAGE.users, users)
+        writeStorage(STORAGE.currentUser, updatedUser)
+        setUser(updatedUser)
+        setEditing(false)
+    }
+
+    const cancelEditing = () => {
+        setForm({
+            name: user?.name || '',
+            email: user?.email || '',
+            phone: user?.phone || '',
+            location: user?.location || '',
+            availability: user?.availability || 'Weekdays',
+            skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
+        })
+        setEditing(false)
+    }
+
+    const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+
+    return (
+        <Layout active="/volunteer-profile">
+            <Header eyebrow="MY PROFILE" title="Volunteer Profile" text="Your profile information is used for opportunity matching." />
+
+            <div className="profile-grid">
+                <section className="panel">
+                    <div className="profile-cover"></div>
+                    <div className="profile-center">
+                        <div className="avatar avatar-lg">{initials}</div>
+                        <h2>{user?.name}</h2>
+                        <p>Volunteer • {user?.location || 'Location not set'} • Available {user?.availability || 'not set'}</p>
+                        <div className="profile-stats">
+                            <span><b>{getAssignments().filter((a) => a.volunteerId === user?.id).length}</b><small>Assignments</small></span>
+                            <span><b>{getHistory().filter((h) => h.volunteerId === user?.id).reduce((sum, h) => sum + Number(h.hours || 0), 0)}</b><small>Hours</small></span>
+                            <span><b>—</b><small>Rating</small></span>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="panel">
+                    <div className="panel-head">
+                        <div><h2>Profile details</h2></div>
+                        {!editing && <button className="btn btn-primary" onClick={startEditing}>Edit Profile</button>}
+                    </div>
+
+                    <div className="form">
+                        <label>Full name<input value={form.name} readOnly={!editing} onChange={(e) => update('name', e.target.value)} /></label>
+                        <label>Email<input value={form.email} readOnly style={{ background: '#f3f4f6', cursor: 'not-allowed' }} /></label>
+                        <label>Phone<input value={form.phone} readOnly={!editing} onChange={(e) => update('phone', e.target.value)} /></label>
+                        <label>Location<input value={form.location} readOnly={!editing} onChange={(e) => update('location', e.target.value)} /></label>
+                        <label>
+                            Availability
+                            {editing ? (
+                                <select value={form.availability} onChange={(e) => update('availability', e.target.value)}>
+                                    <option>Weekdays</option><option>Weekends</option><option>Flexible</option>
+                                </select>
+                            ) : <input value={form.availability} readOnly />}
+                        </label>
+                        <label>
+                            Skills / Domain
+                            <input value={form.skills} readOnly={!editing} onChange={(e) => update('skills', e.target.value)} placeholder="Teaching, Communication, Java" />
+                            {editing && <small className="field-help">Enter multiple skills separated by commas.</small>}
+                        </label>
+                    </div>
+
+                    {!editing && <div className="tags" style={{ marginTop: 20 }}>{(user?.skills || []).length ? user.skills.map((s) => <span className="tag" key={s}>{s}</span>) : <span className="muted">No skills added.</span>}</div>}
+
+                    {editing && (
+                        <div style={{ display: 'flex', gap: 10, marginTop: 25 }}>
+                            <button className="btn btn-primary" onClick={saveProfile}>Save Changes</button>
+                            <button className="btn btn-soft" onClick={cancelEditing}>Cancel</button>
+                        </div>
+                    )}
+                </section>
+            </div>
+        </Layout>
+    )
+}
+
+function Opportunities() {
+    const user = getCurrentUser()
+    const [requirements, setRequirements] = useState(getRequirements)
+    const [query, setQuery] = useState('')
+    const [domain, setDomain] = useState('all')
+    const [sort, setSort] = useState('match')
+    const interests = getInterests()
+
+    const scored = requirements
+        .filter((r) => r.status !== 'closed')
+        .map((r) => ({ ...r, score: calculateMatch(r, user) }))
+        .filter((r) => {
+            const q = query.toLowerCase()
+            const matchesQuery = !q || r.title.toLowerCase().includes(q) || r.ngoName.toLowerCase().includes(q) || (r.domain || '').toLowerCase().includes(q)
+            const matchesDomain = domain === 'all' || r.domain === domain
+            return matchesQuery && matchesDomain
+        })
+        .sort((a, b) => sort === 'latest' ? new Date(b.createdAt) - new Date(a.createdAt) : b.score - a.score)
+
+    const respond = (requirement) => {
+        const existing = getInterests()
+        if (existing.some((i) => i.requirementId === requirement.id && i.volunteerId === user.id)) return
+
+        existing.push({
+            id: makeId('interest'),
+            requirementId: requirement.id,
+            volunteerId: user.id,
+            ngoId: requirement.ngoId,
+            status: 'interested',
+            createdAt: new Date().toISOString(),
+        })
+        writeStorage(STORAGE.interests, existing)
+        setRequirements(getRequirements())
+    }
+
+    const domains = [...new Set(requirements.map((r) => r.domain).filter(Boolean))]
+
+    return (
+        <Layout active="/opportunities">
+            <Header eyebrow="OPPORTUNITIES" title="Opportunities for you" text="Requirements posted by registered organisations and matched to your profile." />
+
+            <div className="toolbar">
+                <div className="search">🔎<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search opportunities" /></div>
+                <select value={domain} onChange={(e) => setDomain(e.target.value)}><option value="all">All domains</option>{domains.map((d) => <option key={d} value={d}>{d}</option>)}</select>
+                <select value={sort} onChange={(e) => setSort(e.target.value)}><option value="match">Best match</option><option value="latest">Latest</option></select>
+            </div>
+
+            {scored.length === 0 ? (
+                <section className="panel"><EmptyState title="No opportunities found" text="There are no NGO requirements matching the current filters." /></section>
+            ) : (
+                <div className="grid4">
+                    {scored.map((r) => {
+                        const interested = interests.some((i) => i.requirementId === r.id && i.volunteerId === user.id)
+                        return (
+                            <article className="card" key={r.id}>
+                                <span className="badge badge-green">{r.score}% match</span>
+                                <h3 style={{ marginTop: 12 }}>{r.title}</h3>
+                                <p>{r.ngoName}</p>
+                                <p style={{ fontSize: 12, marginTop: 8 }}>
+                                    📍 {r.location}<br />
+                                    📅 {r.date}<br />
+                                    ⏰ {r.time}<br />
+                                    👥 {r.volunteersNeeded} volunteer{Number(r.volunteersNeeded) === 1 ? '' : 's'} needed
+                                </p>
+                                <div className="tags">{(r.skills || []).map((s) => <span className="tag" key={s}>{s}</span>)}</div>
+                                <p>{r.description}</p>
+                                <button className="btn btn-primary btn-block" disabled={interested} onClick={() => respond(r)}>
+                                    {interested ? 'Interested ✓' : 'I’m Interested'}
+                                </button>
+                            </article>
+                        )
+                    })}
+                </div>
+            )}
+        </Layout>
+    )
+}
+
+function Accepted() {
+    const user = getCurrentUser()
+    const interests = getInterests().filter((i) => i.volunteerId === user?.id)
+    const requirements = getRequirements()
+    const responded = interests.map((i) => requirements.find((r) => r.id === i.requirementId)).filter(Boolean)
+
+    return (
+        <Layout active="/volunteer-accepted">
+            <Header eyebrow="VOLUNTEER RESPONSES" title="My Accepted Opportunities" text="Requirements where you have expressed interest and are awaiting NGO selection." />
+            <section className="panel">
+                {responded.length === 0 ? <EmptyState title="No responses yet" text="Express interest in an opportunity and it will appear here." /> : (
+                    <div className="list">
+                        {responded.map((r) => (
+                            <div className="item" key={r.id}>
+                                <div className="avatar">{r.ngoName.slice(0, 2).toUpperCase()}</div>
+                                <div><b>{r.title}</b><small>{r.ngoName} • {r.location} • {r.date} • {r.time}</small></div>
+                                <span className="badge badge-yellow">Awaiting NGO selection</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+        </Layout>
+    )
+}
+
+function VolunteerAssignments() {
+    const user = getCurrentUser()
+
+    const loadAssignments = () => {
+        const currentUser = getCurrentUser()
+
+        if (!currentUser) {
+            setAssignments([])
+            return
+        }
+
+        const allAssignments = getAssignments()
+
+        const userAssignments = allAssignments.filter(
+            (assignment) =>
+                String(assignment.volunteerId) ===
+                String(currentUser.id)
+        )
+
+        setAssignments(userAssignments)
+    }
+
+    const [assignments, setAssignments] = useState(() => {
+        if (!user) return []
+
+        return getAssignments().filter(
+            (assignment) =>
+                String(assignment.volunteerId) ===
+                String(user.id)
+        )
+    })
+
+    useEffect(() => {
+        // Load immediately
+        loadAssignments()
+
+        // Same-tab updates
+        window.addEventListener(
+            'volunteerlink-data-change',
+            loadAssignments
+        )
+
+        // Other-tab updates
+        window.addEventListener(
+            'storage',
+            loadAssignments
+        )
+
+        return () => {
+            window.removeEventListener(
+                'volunteerlink-data-change',
+                loadAssignments
+            )
+
+            window.removeEventListener(
+                'storage',
+                loadAssignments
+            )
+        }
+    }, [])
+
+    return (
+        <Layout active="/volunteer-assignments">
+            <Header
+                eyebrow="MY ASSIGNMENTS"
+                title="Confirmed Assignments"
+                text="Tasks selected and confirmed by organisations."
+            />
+
+            <section className="panel">
+                {assignments.length === 0 ? (
+                    <EmptyState
+                        title="No assignments yet"
+                        text="When an NGO selects you, the confirmed assignment will appear here."
+                    />
+                ) : (
+                    <div className="list">
+                        {assignments.map((assignment) => (
+                            <div
+                                className="item"
+                                key={assignment.id}
+                            >
+                                <div className="avatar">
+                                    {(assignment.ngoName || 'NG')
+                                        .slice(0, 2)
+                                        .toUpperCase()}
+                                </div>
+
+                                <div>
+                                    <b>
+                                        {assignment.requirementTitle}
+                                    </b>
+
+                                    <small>
+                                        {assignment.ngoName}
+                                        {' • '}
+                                        {assignment.location}
+                                    </small>
+
+                                    <small>
+                                        📅 {assignment.date}
+                                        {' • '}
+                                        ⏰ {assignment.time}
+                                    </small>
+
+                                    <small>
+                                        {assignment.description}
+                                    </small>
+                                </div>
+
+                                <span
+                                    className={
+                                        assignment.status === 'completed'
+                                            ? 'badge badge-green'
+                                            : 'badge badge-blue'
+                                    }
+                                >
+                                    {assignment.status === 'completed'
+                                        ? 'Completed'
+                                        : 'Confirmed'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+        </Layout>
+    )
+}
+function History() {
+    const user = getCurrentUser()
+    const isNgo = user?.role === 'ngo'
+    const history = getHistory().filter((h) => isNgo ? h.ngoId === user.id : h.volunteerId === user.id)
+
+    const completedHours = history.reduce((sum, h) => sum + Number(h.hours || 0), 0)
+
+    return (
+        <Layout ngo={isNgo} active="/history">
+            <Header eyebrow="HISTORY & REPORTS" title="History & Reports" text="Track completed participation and activity from actual system records." />
+
+            <div className="metric-grid">
+                <div className="metric"><span>Records</span><b>{history.length}</b></div>
+                <div className="metric"><span>Completed</span><b>{history.filter((h) => h.status === 'completed').length}</b></div>
+                <div className="metric"><span>Hours</span><b>{completedHours}</b></div>
+                <div className="metric"><span>Status</span><b>{history.length ? 'Active' : '—'}</b></div>
+            </div>
+
+            <section className="panel">
+                {history.length === 0 ? <EmptyState title="No history yet" text="Completed participation records will appear here." /> : (
+                    <div className="list">
+                        {history.map((h) => (
+                            <div className="history-row" key={h.id}>
+                                <div className="history-icon">✓</div>
+                                <div><b>{h.requirementTitle}</b><small>{h.ngoName} • {h.date} • {h.hours || 0} hours</small></div>
+                                <span className="badge badge-green">{h.status}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+        </Layout>
+    )
+}
+
+function NgoDashboard() {
+    const user = getCurrentUser()
+    const requirements = getRequirements().filter((r) => r.ngoId === user?.id)
+    const interests = getInterests().filter((i) => i.ngoId === user?.id)
+    const assignments = getAssignments().filter((a) => a.ngoId === user?.id)
+    const completed = getHistory().filter((h) => h.ngoId === user?.id)
+
+    return (
+        <Layout ngo active="/ngo-dashboard">
+            <Header
+                eyebrow="ORGANISATION PORTAL"
+                title={`Welcome, ${user?.organisation || user?.name || 'Organisation'} 👋`}
+                text="Manage your requirements, review volunteer responses and confirm assignments."
+                button={<Link to="/requirements" className="btn btn-primary">Post requirement →</Link>}
+            />
+
+            <div className="metric-grid">
+                <div className="metric"><span>Active requirements</span><b>{requirements.filter((r) => r.status !== 'closed').length}</b></div>
+                <div className="metric"><span>Interested volunteers</span><b>{interests.length}</b></div>
+                <div className="metric"><span>Assignments</span><b>{assignments.length}</b></div>
+                <div className="metric"><span>Completed</span><b>{completed.length}</b></div>
+            </div>
+
+            <div className="content">
+                <section className="panel">
+                    <div className="panel-head"><div><h2>My requirements</h2><p>Requirements created by your organisation.</p></div><Link to="/ngo-requirements">View all</Link></div>
+                    {requirements.length === 0 ? <EmptyState title="No requirements posted" text="Create your first volunteer requirement." /> : (
+                        <div className="list">
+                            {requirements.slice(0, 5).map((r) => <div className="item" key={r.id}><div><b>{r.title}</b><small>{r.location} • {r.date} • {r.volunteersNeeded} needed</small></div><span className="badge badge-blue">{r.status}</span></div>)}
+                        </div>
+                    )}
+                </section>
+
+                <section className="panel">
+                    <div className="panel-head"><div><h2>Volunteer responses</h2><p>People who expressed interest in your requirements.</p></div><Link to="/ngo-interested">Review</Link></div>
+                    {interests.length === 0 ? <EmptyState title="No responses yet" text="Volunteer responses will appear here when they express interest." /> : <div className="list"><div className="item"><div><b>{interests.length} response{interests.length === 1 ? '' : 's'}</b><small>Open Interested Volunteers to review profiles.</small></div><Link to="/ngo-interested" className="action">Review</Link></div></div>}
+                </section>
+            </div>
+        </Layout>
+    )
+}
+
+function Requirements() {
+    const user = getCurrentUser()
+    const [form, setForm] = useState({
+        title: '',
+        volunteersNeeded: 1,
+        domain: '',
+        location: '',
+        date: '',
+        time: '',
+        availability: 'Flexible',
+        skills: '',
+        description: '',
+    })
+    const [message, setMessage] = useState('')
+
+    const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+
+    const submit = (e) => {
+        e.preventDefault()
+
+        const requirement = {
+            id: makeId('requirement'),
+            ngoId: user.id,
+            ngoName: user.organisation || user.name,
+            title: form.title.trim(),
+            volunteersNeeded: Number(form.volunteersNeeded),
+            domain: form.domain.trim(),
+            location: form.location.trim(),
+            date: form.date,
+            time: form.time.trim(),
+            availability: form.availability,
+            skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
+            description: form.description.trim(),
+            status: 'active',
+            createdAt: new Date().toISOString(),
+        }
+
+        writeStorage(STORAGE.requirements, [...getRequirements(), requirement])
+        setForm({ title: '', volunteersNeeded: 1, domain: '', location: '', date: '', time: '', availability: 'Flexible', skills: '', description: '' })
+        setMessage('Requirement posted successfully.')
+    }
+
+    return (
+        <Layout ngo active="/requirements">
+            <Header eyebrow="POST REQUIREMENT" title="Create a volunteer requirement" text="Describe the actual task so volunteers can find it and respond." />
+            <form className="panel form" style={{ maxWidth: 850 }} onSubmit={submit}>
+                <div className="two">
+                    <label>Requirement title<input required value={form.title} onChange={(e) => update('title', e.target.value)} /></label>
+                    <label>Volunteers needed<input required type="number" min="1" value={form.volunteersNeeded} onChange={(e) => update('volunteersNeeded', e.target.value)} /></label>
+                </div>
+                <div className="two">
+                    <label>Domain<input required value={form.domain} onChange={(e) => update('domain', e.target.value)} placeholder="Education" /></label>
+                    <label>Location<input required value={form.location} onChange={(e) => update('location', e.target.value)} /></label>
+                </div>
+                <div className="two">
+                    <label>Date<input required type="date" value={form.date} onChange={(e) => update('date', e.target.value)} /></label>
+                    <label>Time<input required value={form.time} onChange={(e) => update('time', e.target.value)} placeholder="9 AM - 1 PM" /></label>
+                </div>
+                <label>Availability<select value={form.availability} onChange={(e) => update('availability', e.target.value)}><option>Weekdays</option><option>Weekends</option><option>Flexible</option></select></label>
+                <label>Required skills<input required value={form.skills} onChange={(e) => update('skills', e.target.value)} placeholder="Teaching, Communication" /></label>
+                <label>Task description<textarea required rows="5" value={form.description} onChange={(e) => update('description', e.target.value)} /></label>
+                <button className="btn btn-primary">Post requirement →</button>
+                {message && <span className="badge badge-green">{message}</span>}
+            </form>
+        </Layout>
+    )
+}
+
+function MyRequirements() {
+    const user = getCurrentUser()
+    const [requirements, setRequirements] = useState(getRequirements().filter((r) => r.ngoId === user?.id))
+
+    const closeRequirement = (id) => {
+        const all = getRequirements().map((r) => r.id === id ? { ...r, status: 'closed' } : r)
+        writeStorage(STORAGE.requirements, all)
+        setRequirements(all.filter((r) => r.ngoId === user.id))
+    }
+
+    return (
+        <Layout ngo active="/ngo-requirements">
+            <Header eyebrow="MY REQUIREMENTS" title="Requirements" text="Manage requirements posted by your organisation." button={<Link to="/requirements" className="btn btn-primary">+ Post requirement</Link>} />
+            <section className="panel">
+                {requirements.length === 0 ? <EmptyState title="No requirements yet" text="Post a requirement to start receiving volunteer responses." /> : (
+                    <table className="table">
+                        <thead><tr><th>Requirement</th><th>Needed</th><th>Responses</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                        {requirements.map((r) => {
+                            const count = getInterests().filter((i) => i.requirementId === r.id).length
+                            return <tr key={r.id}><td><b>{r.title}</b><small>{r.location} • {r.date}</small></td><td>{r.volunteersNeeded}</td><td>{count}</td><td><span className="badge badge-blue">{r.status}</span></td><td>{r.status !== 'closed' && <button className="action" onClick={() => closeRequirement(r.id)}>Close</button>}</td></tr>
+                        })}
+                        </tbody>
+                    </table>
+                )}
+            </section>
+        </Layout>
+    )
+}
+
+function Interested() {
+    const user = getCurrentUser()
+    const requirements = getRequirements().filter((r) => r.ngoId === user?.id)
+    const [selectedRequirementId, setSelectedRequirementId] = useState(requirements[0]?.id || '')
+    const [volunteers, setVolunteers] = useState(getVolunteers())
+    const [assigned, setAssigned] = useState('')
+
+    const interests = getInterests().filter((i) => i.ngoId === user?.id && (!selectedRequirementId || i.requirementId === selectedRequirementId))
+    const requirement = requirements.find((r) => r.id === selectedRequirementId)
+
+    const refresh = () => setVolunteers(getVolunteers())
+
+    const assign = (volunteer, req) => {
+        if (!req) return
+        const assignments = getAssignments()
+        if (assignments.some((a) => a.requirementId === req.id && a.volunteerId === volunteer.id)) return
+
+        assignments.push({
+            id: makeId('assignment'),
+            requirementId: req.id,
+            volunteerId: volunteer.id,
+            ngoId: user.id,
+            volunteerName: volunteer.name,
+            ngoName: user.organisation || user.name,
+            requirementTitle: req.title,
+            location: req.location,
+            date: req.date,
+            time: req.time,
+            description: req.description,
+            status: 'assigned',
+            createdAt: new Date().toISOString(),
+        })
+        writeStorage(STORAGE.assignments, assignments)
+        setAssigned(volunteer.name)
+    }
+
+    return (
+        <Layout ngo active="/ngo-interested">
+            <Header eyebrow="VOLUNTEER SELECTION" title="Interested Volunteers" text="Review real registered volunteers who responded to your requirements." />
+
+            {requirements.length === 0 ? (
+                <section className="panel"><EmptyState title="No requirements posted" text="Post a requirement first. Volunteer responses will be linked to that requirement." /></section>
+            ) : (
+                <>
+                    <section className="panel" style={{ marginBottom: 16 }}>
+                        <label>
+                            Requirement
+                            <select value={selectedRequirementId} onChange={(e) => setSelectedRequirementId(e.target.value)}>
+                                {requirements.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
+                            </select>
+                        </label>
+                        {requirement && <p>{requirement.volunteersNeeded} needed • {requirement.location} • {requirement.date} • {requirement.time}</p>}
+                    </section>
+
+                    <section>
+                        {interests.length === 0 ? (
+                            <section className="panel"><EmptyState title="No volunteers have responded yet" text="When a volunteer clicks “I’m Interested” for this requirement, they will appear here." /></section>
+                        ) : (
+                            interests.map((interest) => {
+                                const volunteer = volunteers.find((v) => v.id === interest.volunteerId)
+                                if (!volunteer) return null
+                                const score = calculateMatch(requirement, volunteer)
+                                const initials = volunteer.name.split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()
+                                const alreadyAssigned = getAssignments().some((a) => a.requirementId === requirement.id && a.volunteerId === volunteer.id)
+
+                                return (
+                                    <article className="match-card" key={interest.id}>
+                                        <div className="match-top">
+                                            <div className="avatar">{initials}</div>
+                                            <div><h3>{volunteer.name}</h3><p>{volunteer.location} • {volunteer.availability}</p><p>{volunteer.email} • {volunteer.phone}</p></div>
+                                            <div className="big-score">{score}%</div>
+                                        </div>
+                                        <div className="tags">{(volunteer.skills || []).map((s) => <span className="tag" key={s}>✓ {s}</span>)}</div>
+                                        <div className="actions">
+                                            <Link to={`/volunteer-view?id=${volunteer.id}`} className="btn btn-soft">View full profile</Link>
+                                            <button className="btn btn-primary" disabled={alreadyAssigned} onClick={() => assign(volunteer, requirement)}>{alreadyAssigned ? 'Assigned ✓' : 'Select & Assign'}</button>
+                                        </div>
+                                    </article>
+                                )
+                            })
+                        )}
+                    </section>
+                    {assigned && <div className="toast show">{assigned} selected. Assignment created.</div>}
+                </>
+            )}
+            <button onClick={refresh} style={{ display: 'none' }}>refresh</button>
+        </Layout>
+    )
+}
+
+function VolunteerView() {
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '')
+    const volunteerId = params.get('id')
+    const volunteer = getVolunteers().find((v) => v.id === volunteerId)
+
+    if (!volunteer) {
+        return <Layout ngo active="/ngo-interested"><Header eyebrow="VOLUNTEER PROFILE" title="Volunteer not found" text="The requested volunteer does not exist in the current data." button={<Link to="/ngo-interested" className="btn btn-soft">← Back</Link>} /><section className="panel"><EmptyState title="Volunteer not found" text="Return to Interested Volunteers and select a registered volunteer." /></section></Layout>
+    }
+
+    const initials = volunteer.name.split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()
+    const assignments = getHistory().filter((h) => h.volunteerId === volunteer.id)
+
+    return (
+        <Layout ngo active="/ngo-interested">
+            <Header eyebrow="VOLUNTEER PROFILE REVIEW" title={volunteer.name} text={`Volunteer • ${volunteer.location || 'Location not set'} • ${volunteer.availability || 'Availability not set'}`} button={<Link to="/ngo-interested" className="btn btn-soft">← Back</Link>} />
+            <section className="panel">
+                <div className="profile-center">
+                    <div className="avatar avatar-lg">{initials}</div>
+                    <h1>{volunteer.name}</h1>
+                    <p>{volunteer.email} • {volunteer.phone}</p>
+                    <div className="profile-stats">
+                        <span><b>{getAssignments().filter((a) => a.volunteerId === volunteer.id).length}</b><small>Assignments</small></span>
+                        <span><b>{assignments.reduce((sum, h) => sum + Number(h.hours || 0), 0)}</b><small>Hours</small></span>
+                        <span><b>—</b><small>Rating</small></span>
+                    </div>
+                </div>
+                <hr style={{ border: 0, borderTop: '1px solid #edf1f5', margin: '20px 0' }} />
+                <h2>Skills & domain</h2>
+                <div className="tags">{(volunteer.skills || []).map((s) => <span className="tag" key={s}>{s}</span>)}</div>
+                <h2 style={{ marginTop: 25 }}>Previous participation</h2>
+                {assignments.length === 0 ? <p className="muted">No completed participation records.</p> : <div className="list">{assignments.map((h) => <div className="item" key={h.id}><div><b>{h.requirementTitle}</b><small>{h.date} • {h.hours || 0} hours</small></div><span className="badge badge-green">Completed</span></div>)}</div>}
+            </section>
+        </Layout>
+    )
+}
+
+function NgoAssignments() {
+    const user = getCurrentUser()
+    const assignments = getAssignments().filter((a) => a.ngoId === user?.id)
+    const [list, setList] = useState(assignments)
+
+    const complete = (assignment) => {
+        const all = getAssignments().map((a) => a.id === assignment.id ? { ...a, status: 'completed' } : a)
+        writeStorage(STORAGE.assignments, all)
+
+        const history = getHistory()
+        if (!history.some((h) => h.assignmentId === assignment.id)) {
+            history.push({
+                id: makeId('history'),
+                assignmentId: assignment.id,
+                requirementId: assignment.requirementId,
+                volunteerId: assignment.volunteerId,
+                ngoId: assignment.ngoId,
+                requirementTitle: assignment.requirementTitle,
+                ngoName: assignment.ngoName,
+                date: assignment.date,
+                hours: 0,
+                status: 'completed',
+                createdAt: new Date().toISOString(),
+            })
+            writeStorage(STORAGE.history, history)
+        }
+        setList(all.filter((a) => a.ngoId === user.id))
+    }
+
+    return (
+        <Layout ngo active="/ngo-assignments">
+            <Header eyebrow="ASSIGNMENT MANAGEMENT" title="Final Assignments" text="Confirmed tasks selected by your organisation." />
+            <section className="panel">
+                {list.length === 0 ? <EmptyState title="No assignments yet" text="Select a volunteer from the responses to create an assignment." /> : <div className="list">{list.map((a) => <div className="item" key={a.id}><div className="avatar">{a.volunteerName.slice(0, 2).toUpperCase()}</div><div><b>{a.volunteerName}</b><small>{a.requirementTitle} • {a.location}</small><small>📅 {a.date} • ⏰ {a.time}</small><small>{a.description}</small></div><span className={`badge ${a.status === 'completed' ? 'badge-green' : 'badge-blue'}`}>{a.status === 'completed' ? 'Completed' : 'Assigned'}</span>{a.status !== 'completed' && <button className="action" onClick={() => complete(a)}>Mark completed</button>}</div>)}</div>}
+            </section>
+        </Layout>
+    )
+}
+
+function App() {
+    const [path, setPath] = useState(window.location.hash.slice(1) || '/')
+
+    useEffect(() => {
+        const onHashChange = () => setPath(window.location.hash.slice(1) || '/')
+        window.addEventListener('hashchange', onHashChange)
+        return () => window.removeEventListener('hashchange', onHashChange)
+    }, [])
+
+    const routePath = path.split('?')[0]
+    const current = getCurrentUser()
+
+    const protectedVolunteer = [
+        '/volunteer-dashboard', '/volunteer-profile', '/opportunities',
+        '/volunteer-accepted', '/volunteer-assignments',
+    ]
+
+    const protectedAnyUser = ['/history']
+
+    const protectedNgo = [
+        '/ngo-dashboard', '/requirements', '/ngo-requirements',
+        '/ngo-interested', '/ngo-assignments', '/volunteer-view',
+    ]
+
+    if (protectedVolunteer.includes(routePath) && (!current || current.role !== 'volunteer')) return <Login />
+    if (protectedNgo.includes(routePath) && (!current || current.role !== 'ngo')) return <Login />
+    if (protectedAnyUser.includes(routePath) && !current) return <Login />
+
+    const pages = {
+        '/': <Home />,
+        '/login': <Login />,
+        '/register': <Register />,
+        '/volunteer-dashboard': <VolunteerDashboard />,
+        '/volunteer-profile': <VolunteerProfile />,
+        '/opportunities': <Opportunities />,
+        '/volunteer-accepted': <Accepted />,
+        '/volunteer-assignments': <VolunteerAssignments />,
+        '/history': <History />,
+        '/ngo-dashboard': <NgoDashboard />,
+        '/requirements': <Requirements />,
+        '/ngo-requirements': <MyRequirements />,
+        '/ngo-interested': <Interested />,
+        '/volunteer-view': <VolunteerView />,
+        '/ngo-assignments': <NgoAssignments />,
+    }
+
+    return pages[routePath] || <Home />
 }
 
 export default App
