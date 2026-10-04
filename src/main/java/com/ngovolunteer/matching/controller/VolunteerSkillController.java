@@ -1,28 +1,45 @@
 package com.ngovolunteer.matching.controller;
 
 import com.ngovolunteer.matching.entity.VolunteerSkill;
-import com.ngovolunteer.matching.repository.VolunteerSkillRepository;
+import com.ngovolunteer.matching.service.VolunteerSkillService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/test")
+@RequestMapping("/api/volunteer-skills")
 public class VolunteerSkillController {
 
-    private final VolunteerSkillRepository volunteerSkillRepository;
+    private final VolunteerSkillService volunteerSkillService;
 
-    public VolunteerSkillController(VolunteerSkillRepository volunteerSkillRepository) {
-        this.volunteerSkillRepository = volunteerSkillRepository;
+    public VolunteerSkillController(VolunteerSkillService volunteerSkillService) {
+        this.volunteerSkillService = volunteerSkillService;
     }
 
-    @PostMapping("/volunteer-skill")
+    @PostMapping
     public VolunteerSkill createVolunteerSkill(@RequestBody VolunteerSkill volunteerSkill) {
-        return volunteerSkillRepository.save(volunteerSkill);
+        return volunteerSkillService.createVolunteerSkill(volunteerSkill);
     }
 
-    @GetMapping("/volunteer-skills")
-    public List<VolunteerSkill> getVolunteerSkills() {
-        return volunteerSkillRepository.findAll();
+    @GetMapping
+    public List<VolunteerSkill> getAllVolunteerSkills() {
+        return volunteerSkillService.getAllVolunteerSkills();
+    }
+
+    @GetMapping("/{id}")
+    public VolunteerSkill getVolunteerSkillById(@PathVariable Long id) {
+        return volunteerSkillService.getVolunteerSkillById(id);
+    }
+
+    @PutMapping("/{id}")
+    public VolunteerSkill updateVolunteerSkill(
+            @PathVariable Long id,
+            @RequestBody VolunteerSkill volunteerSkill) {
+        return volunteerSkillService.updateVolunteerSkill(id, volunteerSkill);
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteVolunteerSkill(@PathVariable Long id) {
+        volunteerSkillService.deleteVolunteerSkill(id);
     }
 }
