@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from 'react'
 
 /* =========================================================
@@ -227,25 +228,44 @@ function Login() {
     const [password, setPassword] = useState('')
     const [error, setError] = useState('')
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault()
         setError('')
 
-        const users = getUsers()
-        const user = users.find(
-            (u) =>
-                u.email.toLowerCase() === email.trim().toLowerCase() &&
-                u.password === password &&
-                u.role === role,
-        )
+        try {
+            const response = await fetch('http://localhost:8080/api/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    email: email.trim(),
+                    password: password,
+                }),
+            })
 
-        if (!user) {
-            setError('Invalid email, password, or account type.')
-            return
+            if (!response.ok) {
+                const message = await response.text()
+                setError(message || 'Invalid email or password.')
+                return
+            }
+
+            const user = await response.json()
+
+            // Store the backend login response for the existing frontend UI.
+            writeStorage(STORAGE.currentUser, {
+                ...user,
+                role: user.role?.toLowerCase(),
+            })
+
+            go(user.role?.toLowerCase() === 'ngo'
+                ? '/ngo-dashboard'
+                : '/volunteer-dashboard')
+        } catch (error) {
+            console.error('Login error:', error)
+            setError('Unable to connect to the backend.')
         }
-
-        writeStorage(STORAGE.currentUser, user)
-        go(role === 'ngo' ? '/ngo-dashboard' : '/volunteer-dashboard')
     }
 
     return (
@@ -1083,9 +1103,9 @@ function NgoDashboard() {
         </Layout>
     )
 }
-
 function Requirements() {
     const user = getCurrentUser()
+
     const [form, setForm] = useState({
         title: '',
         volunteersNeeded: 1,
@@ -1097,87 +1117,243 @@ function Requirements() {
         skills: '',
         description: '',
     })
+
     const [message, setMessage] = useState('')
 
-    const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+    const update = (key, value) => {
+        setForm((prev) => ({
+            ...prev,
+            [key]: value,
+        }))
+    }
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault()
+        setMessage('')
 
-        const requirement = {
-            id: makeId('requirement'),
-            ngoId: user.id,
-            ngoName: user.organisation || user.name,
-            title: form.title.trim(),
-            volunteersNeeded: Number(form.volunteersNeeded),
-            domain: form.domain.trim(),
-            location: form.location.trim(),
-            date: form.date,
-            time: form.time.trim(),
-            availability: form.availability,
-            skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
-            description: form.description.trim(),
-            status: 'active',
-            createdAt: new Date().toISOString(),
+        try {
+            const response = await fetch(
+                'http://localhost:8080/api/requirements',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        title: form.title.trim(),
+                        volunteersNeeded: Number(form.volunteersNeeded),
+                        domain: form.domain.trim(),
+                        location: form.location.trim(),
+                        date: form.date,
+                        time: form.time.trim(),
+                        taskDescription: form.description.trim(),
+                        status: 'OPEN',
+                    }),
+                }
+            )
+
+            if (!response.ok) {
+                const errorMessage = await response.text()
+
+                setMessage(
+                    errorMessage || 'Failed to post requirement.'
+                )
+
+                return
+            }
+
+            await response.json()
+
+            setForm({
+                title: '',
+                volunteersNeeded: 1,
+                domain: '',
+                location: '',
+                date: '',
+                time: '',
+                availability: 'Flexible',
+                skills: '',
+                description: '',
+            })
+
+            setMessage('Requirement posted successfully.')
+
+        } catch (error) {
+            console.error('Requirement error:', error)
+
+            setMessage(
+                'Unable to connect to the backend.'
+            )
         }
-
-        writeStorage(STORAGE.requirements, [...getRequirements(), requirement])
-        setForm({ title: '', volunteersNeeded: 1, domain: '', location: '', date: '', time: '', availability: 'Flexible', skills: '', description: '' })
-        setMessage('Requirement posted successfully.')
     }
 
     return (
         <Layout ngo active="/requirements">
-            <Header eyebrow="POST REQUIREMENT" title="Create a volunteer requirement" text="Describe the actual task so volunteers can find it and respond." />
-            <form className="panel form" style={{ maxWidth: 850 }} onSubmit={submit}>
-                <div className="two">
-                    <label>Requirement title<input required value={form.title} onChange={(e) => update('title', e.target.value)} /></label>
-                    <label>Volunteers needed<input required type="number" min="1" value={form.volunteersNeeded} onChange={(e) => update('volunteersNeeded', e.target.value)} /></label>
-                </div>
-                <div className="two">
-                    <label>Domain<input required value={form.domain} onChange={(e) => update('domain', e.target.value)} placeholder="Education" /></label>
-                    <label>Location<input required value={form.location} onChange={(e) => update('location', e.target.value)} /></label>
-                </div>
-                <div className="two">
-                    <label>Date<input required type="date" value={form.date} onChange={(e) => update('date', e.target.value)} /></label>
-                    <label>Time<input required value={form.time} onChange={(e) => update('time', e.target.value)} placeholder="9 AM - 1 PM" /></label>
-                </div>
-                <label>Availability<select value={form.availability} onChange={(e) => update('availability', e.target.value)}><option>Weekdays</option><option>Weekends</option><option>Flexible</option></select></label>
-                <label>Required skills<input required value={form.skills} onChange={(e) => update('skills', e.target.value)} placeholder="Teaching, Communication" /></label>
-                <label>Task description<textarea required rows="5" value={form.description} onChange={(e) => update('description', e.target.value)} /></label>
-                <button className="btn btn-primary">Post requirement →</button>
-                {message && <span className="badge badge-green">{message}</span>}
-            </form>
-        </Layout>
-    )
-}
 
-function MyRequirements() {
-    const user = getCurrentUser()
-    const [requirements, setRequirements] = useState(getRequirements().filter((r) => r.ngoId === user?.id))
+            <Header
+                eyebrow="POST REQUIREMENT"
+                title="Create a volunteer requirement"
+                text="Describe the actual task so volunteers can find it and respond."
+            />
 
-    const closeRequirement = (id) => {
-        const all = getRequirements().map((r) => r.id === id ? { ...r, status: 'closed' } : r)
-        writeStorage(STORAGE.requirements, all)
-        setRequirements(all.filter((r) => r.ngoId === user.id))
-    }
+            <form
+                className="panel form"
+                style={{ maxWidth: 850 }}
+                onSubmit={submit}
+            >
 
-    return (
-        <Layout ngo active="/ngo-requirements">
-            <Header eyebrow="MY REQUIREMENTS" title="Requirements" text="Manage requirements posted by your organisation." button={<Link to="/requirements" className="btn btn-primary">+ Post requirement</Link>} />
-            <section className="panel">
-                {requirements.length === 0 ? <EmptyState title="No requirements yet" text="Post a requirement to start receiving volunteer responses." /> : (
-                    <table className="table">
-                        <thead><tr><th>Requirement</th><th>Needed</th><th>Responses</th><th>Status</th><th></th></tr></thead>
-                        <tbody>
-                        {requirements.map((r) => {
-                            const count = getInterests().filter((i) => i.requirementId === r.id).length
-                            return <tr key={r.id}><td><b>{r.title}</b><small>{r.location} • {r.date}</small></td><td>{r.volunteersNeeded}</td><td>{count}</td><td><span className="badge badge-blue">{r.status}</span></td><td>{r.status !== 'closed' && <button className="action" onClick={() => closeRequirement(r.id)}>Close</button>}</td></tr>
-                        })}
-                        </tbody>
-                    </table>
+                <div className="two">
+
+                    <label>
+                        Requirement title
+
+                        <input
+                            required
+                            value={form.title}
+                            onChange={(e) =>
+                                update('title', e.target.value)
+                            }
+                        />
+                    </label>
+
+                    <label>
+                        Volunteers needed
+
+                        <input
+                            required
+                            type="number"
+                            min="1"
+                            value={form.volunteersNeeded}
+                            onChange={(e) =>
+                                update(
+                                    'volunteersNeeded',
+                                    e.target.value
+                                )
+                            }
+                        />
+                    </label>
+
+                </div>
+
+                <div className="two">
+
+                    <label>
+                        Domain
+
+                        <input
+                            required
+                            value={form.domain}
+                            onChange={(e) =>
+                                update('domain', e.target.value)
+                            }
+                            placeholder="Education"
+                        />
+                    </label>
+
+                    <label>
+                        Location
+
+                        <input
+                            required
+                            value={form.location}
+                            onChange={(e) =>
+                                update('location', e.target.value)
+                            }
+                        />
+                    </label>
+
+                </div>
+
+                <div className="two">
+
+                    <label>
+                        Date
+
+                        <input
+                            required
+                            type="date"
+                            value={form.date}
+                            onChange={(e) =>
+                                update('date', e.target.value)
+                            }
+                        />
+                    </label>
+
+                    <label>
+                        Time
+
+                        <input
+                            required
+                            value={form.time}
+                            onChange={(e) =>
+                                update('time', e.target.value)
+                            }
+                            placeholder="9 AM - 1 PM"
+                        />
+                    </label>
+
+                </div>
+
+                <label>
+                    Availability
+
+                    <select
+                        value={form.availability}
+                        onChange={(e) =>
+                            update(
+                                'availability',
+                                e.target.value
+                            )
+                        }
+                    >
+                        <option>Weekdays</option>
+                        <option>Weekends</option>
+                        <option>Flexible</option>
+                    </select>
+                </label>
+
+                <label>
+                    Required skills
+
+                    <input
+                        required
+                        value={form.skills}
+                        onChange={(e) =>
+                            update('skills', e.target.value)
+                        }
+                        placeholder="Teaching, Communication"
+                    />
+                </label>
+
+                <label>
+                    Task description
+
+                    <textarea
+                        required
+                        rows="5"
+                        value={form.description}
+                        onChange={(e) =>
+                            update(
+                                'description',
+                                e.target.value
+                            )
+                        }
+                    />
+                </label>
+
+                <button className="btn btn-primary">
+                    Post requirement →
+                </button>
+
+                {message && (
+                    <span className="badge badge-green">
+                        {message}
+                    </span>
                 )}
-            </section>
+
+            </form>
+
         </Layout>
     )
 }
@@ -1395,5 +1571,4 @@ function App() {
 
     return pages[routePath] || <Home />
 }
-
 export default App
