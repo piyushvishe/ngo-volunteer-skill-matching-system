@@ -568,27 +568,66 @@ function Header({ eyebrow, title, text, button }) {
 }
 
 function calculateMatch(requirement, volunteer) {
-    const volunteerSkills = (volunteer?.skills || []).map((s) => s.toLowerCase().trim())
-    const requiredSkills = (requirement?.skills || []).map((s) => s.toLowerCase().trim())
+    const volunteerSkills = (volunteer?.skills || [])
+        .map((s) => s.toLowerCase().trim())
 
-    const matchedSkills = requiredSkills.filter((skill) => volunteerSkills.includes(skill))
+    const requiredSkills = (requirement?.skills || [])
+        .map((s) => s.toLowerCase().trim())
+
+    const volunteerAvailability =
+        (volunteer?.availability || '').toLowerCase().trim()
+
+    const requirementAvailability =
+        (requirement?.availability || '').toLowerCase().trim()
+
+    const volunteerLocation =
+        (volunteer?.location || '').toLowerCase().trim()
+
+    const requirementLocation =
+        (requirement?.location || '').toLowerCase().trim()
+
+    // Skills = 70%
+    const matchedSkills = requiredSkills.filter((skill) =>
+        volunteerSkills.includes(skill)
+    )
+
     const skillScore = requiredSkills.length
-        ? Math.round((matchedSkills.length / requiredSkills.length) * 70)
+        ? Math.round(
+              (matchedSkills.length / requiredSkills.length) * 70
+          )
         : 0
 
-    const availabilityMatch =
-        requirement.availability && volunteer.availability &&
-        requirement.availability.toLowerCase() === volunteer.availability.toLowerCase()
-            ? 15
-            : 0
+    // Availability = +15 for match, -10 for mismatch
+    let availabilityScore = 0
 
-    const locationMatch =
-        requirement.location && volunteer.location &&
-        requirement.location.toLowerCase() === volunteer.location.toLowerCase()
-            ? 15
-            : 0
+    if (requirementAvailability === 'flexible') {
+        availabilityScore = 15
+    } else if (
+        requirementAvailability &&
+        volunteerAvailability === requirementAvailability
+    ) {
+        availabilityScore = 15
+    } else if (requirementAvailability) {
+        availabilityScore = -10
+    }
 
-    return Math.min(100, skillScore + availabilityMatch + locationMatch)
+    // Location = +15 for match, -10 for mismatch
+    let locationScore = 0
+
+    if (
+        requirementLocation &&
+        volunteerLocation &&
+        volunteerLocation === requirementLocation
+    ) {
+        locationScore = 15
+    } else if (requirementLocation) {
+        locationScore = -10
+    }
+
+    return Math.max(
+        0,
+        Math.min(100, skillScore + availabilityScore + locationScore)
+    )
 }
 
 function VolunteerDashboard() {
@@ -1572,3 +1611,4 @@ function App() {
     return pages[routePath] || <Home />
 }
 export default App
+
