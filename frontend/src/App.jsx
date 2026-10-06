@@ -1667,6 +1667,155 @@ function MyRequirements() {
     )
 }
 
+function MyRequirements() {
+    const user = getCurrentUser()
+
+    const [requirements, setRequirements] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
+
+    const loadRequirements = async () => {
+        try {
+            setLoading(true)
+            setError('')
+
+            const response = await fetch(
+                'http://localhost:8080/api/requirements',
+                {
+                    method: 'GET',
+                    credentials: 'include',
+                }
+            )
+
+            if (!response.ok) {
+                const message = await response.text()
+                setError(message || 'Failed to load requirements.')
+                return
+            }
+
+            const data = await response.json()
+
+            const myRequirements = data.filter(
+                (requirement) =>
+                    Number(requirement?.ngo?.user?.id) ===
+                    Number(user?.id)
+            )
+
+            setRequirements(myRequirements)
+
+        } catch (error) {
+            console.error('Load requirements error:', error)
+            setError('Unable to connect to the backend.')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        loadRequirements()
+    }, [])
+
+    if (loading) {
+        return (
+            <Layout ngo active="/ngo-requirements">
+                <Header
+                    eyebrow="MY REQUIREMENTS"
+                    title="Requirements"
+                    text="Manage requirements posted by your organisation."
+                />
+
+                <section className="panel">
+                    <p>Loading requirements...</p>
+                </section>
+            </Layout>
+        )
+    }
+
+    return (
+        <Layout ngo active="/ngo-requirements">
+
+            <Header
+                eyebrow="MY REQUIREMENTS"
+                title="Requirements"
+                text="Manage requirements posted by your organisation."
+                button={
+                    <Link
+                        to="/requirements"
+                        className="btn btn-primary"
+                    >
+                        + Post requirement
+                    </Link>
+                }
+            />
+
+            {error && (
+                <section className="panel">
+                    <div className="form-error">
+                        {error}
+                    </div>
+                </section>
+            )}
+
+            <section className="panel">
+
+                {requirements.length === 0 ? (
+
+                    <EmptyState
+                        title="No requirements yet"
+                        text="Post a requirement to start receiving volunteer responses."
+                    />
+
+                ) : (
+
+                    <table className="table">
+
+                        <thead>
+                        <tr>
+                            <th>Requirement</th>
+                            <th>Needed</th>
+                            <th>Status</th>
+                        </tr>
+                        </thead>
+
+                        <tbody>
+
+                        {requirements.map((r) => (
+
+                            <tr key={r.id}>
+
+                                <td>
+                                    <b>{r.title}</b>
+                                    <small>
+                                        {r.location} • {r.date}
+                                    </small>
+                                </td>
+
+                                <td>
+                                    {r.volunteersNeeded}
+                                </td>
+
+                                <td>
+                                        <span className="badge badge-blue">
+                                            {r.status}
+                                        </span>
+                                </td>
+
+                            </tr>
+
+                        ))}
+
+                        </tbody>
+
+                    </table>
+
+                )}
+
+            </section>
+
+        </Layout>
+    )
+}
+
 function Interested() {
     const user = getCurrentUser()
     const requirements = getRequirements().filter((r) => r.ngoId === user?.id)
