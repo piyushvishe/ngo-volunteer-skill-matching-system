@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from 'react'
 
 /* =========================================================
@@ -20,6 +19,141 @@ const STORAGE = {
     interests: 'volunteerlink_interests',
     assignments: 'volunteerlink_assignments',
     history: 'volunteerlink_history',
+}
+
+const DOMAINS = [
+    'Education',
+    'Healthcare',
+    'Environment',
+    'Community Development',
+    'Animal Welfare',
+    'Disaster Relief',
+    'Women & Child Welfare',
+    'Senior Citizen Support',
+    'Fundraising',
+    'Other',
+]
+
+const SKILL_GROUPS = {
+    healthcare: ['healthcare', 'health', 'medical', 'first aid', 'patient care', 'patient assistance', 'health screening', 'health checkup', 'medical assistance', 'nursing', 'nursing assistance', 'clinic', 'doctor'],
+    education: ['teaching', 'teacher', 'tutor', 'tutoring', 'education', 'mentoring', 'academic', 'classroom', 'training'],
+    communication: ['communication', 'public speaking', 'speaking', 'counselling', 'counseling', 'interpersonal', 'coordination', 'outreach'],
+    design: ['design', 'graphic design', 'ui', 'ux', 'ui/ux', 'illustration', 'photoshop', 'canva', 'creative'],
+    technology: ['technology', 'tech', 'computer', 'programming', 'coding', 'software', 'web', 'data', 'it', 'digital'],
+    socialWork: ['social work', 'social service', 'community service', 'community outreach', 'volunteering', 'ngo', 'community development'],
+    fundraising: ['fundraising', 'fund raising', 'donation', 'donor', 'campaign', 'event management', 'event planning'],
+    environment: ['environment', 'environmental', 'tree plantation', 'recycling', 'waste management', 'sustainability', 'conservation'],
+}
+
+function normalizeText(value = '') {
+    return String(value).toLowerCase().trim()
+}
+
+function getLocationParts(person = {}) {
+    if (person.city || person.area || person.street) {
+        return {
+            city: person.city || '',
+            area: person.area || '',
+            street: person.street || '',
+        }
+    }
+
+    const parts = String(person.location || '').split(',').map((x) => x.trim()).filter(Boolean)
+    return {
+        city: parts[0] || '',
+        area: parts[1] || '',
+        street: parts.slice(2).join(', ') || '',
+    }
+}
+
+function formatLocation(person = {}) {
+    const { city, area, street } = getLocationParts(person)
+    return [city, area, street].filter(Boolean).join(', ') || person.location || 'Location not set'
+}
+
+function getDayType(date) {
+    if (!date) return ''
+    const day = new Date(`${date}T00:00:00`).getDay()
+    return day === 0 || day === 6 ? 'weekends' : 'weekdays'
+}
+
+function parseTimePart(value) {
+    const match = String(value || '').trim().toLowerCase().match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/)
+    if (!match) return null
+
+    let hour = Number(match[1])
+    const minute = Number(match[2] || 0)
+    const period = match[3]
+
+    if (period === 'pm' && hour < 12) hour += 12
+    if (period === 'am' && hour === 12) hour = 0
+
+    return { hour, minute }
+}
+
+function getAssignmentEndDateTime(assignment) {
+    if (!assignment?.date || !assignment?.time) return null
+
+    const timeParts = String(assignment.time)
+        .replace(/[–—]/g, '-')
+        .split('-')
+        .map((part) => part.trim())
+
+    if (timeParts.length < 2) return null
+
+    const start = parseTimePart(timeParts[0])
+    const end = parseTimePart(timeParts[1])
+    if (!start || !end) return null
+
+    // If the end time has no AM/PM, use the start period where possible.
+    if (!/[ap]m/i.test(timeParts[1]) && /[ap]m/i.test(timeParts[0])) {
+        const period = timeParts[0].toLowerCase().includes('pm') ? 'pm' : 'am'
+        if (period === 'pm' && end.hour < 12) end.hour += 12
+        if (period === 'am' && end.hour === 12) end.hour = 0
+    }
+
+    const endDate = new Date(`${assignment.date}T00:00:00`)
+    if (Number.isNaN(endDate.getTime())) return null
+    endDate.setHours(end.hour, end.minute, 0, 0)
+    return endDate
+}
+
+function getAssignmentHours(assignment) {
+    if (!assignment?.time) return 0
+
+    const timeParts = String(assignment.time)
+        .replace(/[–—]/g, '-')
+        .split('-')
+        .map((part) => part.trim())
+
+    if (timeParts.length < 2) return 0
+    const start = parseTimePart(timeParts[0])
+    const end = parseTimePart(timeParts[1])
+    if (!start || !end) return 0
+
+    let startMinutes = start.hour * 60 + start.minute
+    let endMinutes = end.hour * 60 + end.minute
+
+    if (!/[ap]m/i.test(timeParts[1]) && /[ap]m/i.test(timeParts[0])) {
+        const period = timeParts[0].toLowerCase().includes('pm') ? 'pm' : 'am'
+        if (period === 'pm' && end.hour < 12) endMinutes += 12 * 60
+        if (period === 'am' && end.hour === 12) endMinutes = 0
+    }
+
+    if (endMinutes < startMinutes) endMinutes += 12 * 60
+    return Number(((endMinutes - startMinutes) / 60).toFixed(2))
+}
+
+function skillsAreRelated(skillA, skillB) {
+    const a = normalizeText(skillA)
+    const b = normalizeText(skillB)
+    if (!a || !b) return false
+    if (a === b || a.includes(b) || b.includes(a)) return true
+
+    return Object.values(SKILL_GROUPS).some((group) =>
+        group.some((keyword) => a.includes(keyword)) &&
+        group.some((keyword) => b.includes(keyword))
+    )
 }
 
 function readStorage(key, fallback = []) {
@@ -228,44 +362,25 @@ function Login() {
     const [password, setPassword] = useState('')
     const [error, setError] = useState('')
 
-    const submit = async (e) => {
+    const submit = (e) => {
         e.preventDefault()
         setError('')
 
-        try {
-            const response = await fetch('http://localhost:8080/api/auth/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    email: email.trim(),
-                    password: password,
-                }),
-            })
+        const users = getUsers()
+        const user = users.find(
+            (u) =>
+                u.email.toLowerCase() === email.trim().toLowerCase() &&
+                u.password === password &&
+                u.role === role,
+        )
 
-            if (!response.ok) {
-                const message = await response.text()
-                setError(message || 'Invalid email or password.')
-                return
-            }
-
-            const user = await response.json()
-
-            // Store the backend login response for the existing frontend UI.
-            writeStorage(STORAGE.currentUser, {
-                ...user,
-                role: user.role?.toLowerCase(),
-            })
-
-            go(user.role?.toLowerCase() === 'ngo'
-                ? '/ngo-dashboard'
-                : '/volunteer-dashboard')
-        } catch (error) {
-            console.error('Login error:', error)
-            setError('Unable to connect to the backend.')
+        if (!user) {
+            setError('Invalid email, password, or account type.')
+            return
         }
+
+        writeStorage(STORAGE.currentUser, user)
+        go(role === 'ngo' ? '/ngo-dashboard' : '/volunteer-dashboard')
     }
 
     return (
@@ -337,11 +452,14 @@ function Register() {
         email: '',
         phone: '',
         password: '',
-        location: '',
+        city: '',
+        area: '',
+        street: '',
         availability: 'Weekdays',
         skills: '',
         organisation: '',
         domain: '',
+        domains: [],
     })
     const [error, setError] = useState('')
 
@@ -366,14 +484,18 @@ function Register() {
             email,
             phone: form.phone.trim(),
             password: form.password,
-            location: form.location.trim(),
+            city: form.city.trim(),
+            area: form.area.trim(),
+            street: form.street.trim(),
+            location: [form.city.trim(), form.area.trim(), form.street.trim()].filter(Boolean).join(', '),
             availability: form.availability,
             skills:
                 role === 'volunteer'
                     ? form.skills.split(',').map((s) => s.trim()).filter(Boolean)
                     : [],
             organisation: role === 'ngo' ? form.organisation.trim() : '',
-            domain: role === 'ngo' ? form.domain.trim() : '',
+            domain: role === 'ngo' ? (form.domains[0] || '') : form.domain.trim(),
+            domains: role === 'ngo' ? form.domains : [form.domain].filter(Boolean),
             createdAt: new Date().toISOString(),
         }
 
@@ -432,11 +554,21 @@ function Register() {
 
                 {role === 'volunteer' ? (
                     <>
+                        <label>
+                            Domain
+                            <select required value={form.domain} onChange={(e) => update('domain', e.target.value)}>
+                                <option value="">Select domain</option>
+                                {DOMAINS.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+                            </select>
+                        </label>
+
                         <div className="two">
-                            <label>
-                                Location
-                                <input required value={form.location} onChange={(e) => update('location', e.target.value)} placeholder="Mumbai" />
-                            </label>
+                            <label>City<input required value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Mumbai" /></label>
+                            <label>Area<input required value={form.area} onChange={(e) => update('area', e.target.value)} placeholder="Dadar" /></label>
+                        </div>
+
+                        <div className="two">
+                            <label>Street / Road / Locality<input value={form.street} onChange={(e) => update('street', e.target.value)} placeholder="Senapati Bapat Marg" /></label>
                             <label>
                                 Availability
                                 <select value={form.availability} onChange={(e) => update('availability', e.target.value)}>
@@ -448,12 +580,12 @@ function Register() {
                         </div>
 
                         <label>
-                            Skills / domain
+                            Skills
                             <input
                                 required
                                 value={form.skills}
                                 onChange={(e) => update('skills', e.target.value)}
-                                placeholder="Teaching, Design, Social Work"
+                                placeholder="Teaching, Communication, First Aid"
                             />
                             <small className="field-help">Enter multiple skills separated by commas.</small>
                         </label>
@@ -465,15 +597,52 @@ function Register() {
                             <input required value={form.organisation} onChange={(e) => update('organisation', e.target.value)} />
                         </label>
                         <label>
-                            Focus domain
-                            <input value={form.domain} onChange={(e) => update('domain', e.target.value)} placeholder="Education, Environment, Health" />
+                            Focus domains
+                            <div className="tags" style={{ marginTop: 10, gap: 8 }}>
+                                {DOMAINS.map((domain) => (
+                                    <label key={domain} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid #dbe3ef', borderRadius: 10, background: form.domains.includes(domain) ? '#eef5ff' : '#fff', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={form.domains.includes(domain)}
+                                            onChange={(e) => {
+                                                const next = e.target.checked
+                                                    ? [...form.domains, domain]
+                                                    : form.domains.filter((d) => d !== domain)
+                                                update('domains', next)
+                                            }}
+                                        />
+                                        {domain}
+                                    </label>
+                                ))}
+                            </div>
+                            <small className="field-help">Select all domains your organisation works in.</small>
+                            <input type="text" tabIndex="-1" required value={form.domains.length ? form.domains.join(', ') : ''} onChange={() => {}} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', height: 1 }} aria-label="Selected focus domains" />
                         </label>
                     </>
                 )}
 
-                <label className="checkbox-label">
-                    <input type="checkbox" required />
-                    I agree to use the VolunteerLink platform.
+                <label
+                    className="checkbox-label"
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'flex-start',
+                        gap: 10,
+                        cursor: 'pointer',
+                        marginTop: 8,
+                    }}
+                >
+                    <input
+                        type="checkbox"
+                        required
+                        style={{
+                            width: 18,
+                            height: 18,
+                            margin: 0,
+                            flex: '0 0 auto',
+                        }}
+                    />
+                    <span>I agree to use the VolunteerLink platform.</span>
                 </label>
 
                 {error && <div className="form-error">{error}</div>}
@@ -568,71 +737,75 @@ function Header({ eyebrow, title, text, button }) {
 }
 
 function calculateMatch(requirement, volunteer) {
-    const volunteerSkills = (volunteer?.skills || [])
-        .map((s) => s.toLowerCase().trim())
+    const requiredSkills = requirement?.skills || []
+    const volunteerSkills = volunteer?.skills || []
 
-    const requiredSkills = (requirement?.skills || [])
-        .map((s) => s.toLowerCase().trim())
-
-    const volunteerAvailability =
-        (volunteer?.availability || '').toLowerCase().trim()
-
-    const requirementAvailability =
-        (requirement?.availability || '').toLowerCase().trim()
-
-    const volunteerLocation =
-        (volunteer?.location || '').toLowerCase().trim()
-
-    const requirementLocation =
-        (requirement?.location || '').toLowerCase().trim()
-
-    // Skills = 70%
-    const matchedSkills = requiredSkills.filter((skill) =>
-        volunteerSkills.includes(skill)
-    )
-
+    // Skills = 50% (flexible/related skill matching)
+    let matchedSkills = 0
+    requiredSkills.forEach((requiredSkill) => {
+        if (volunteerSkills.some((volunteerSkill) => skillsAreRelated(requiredSkill, volunteerSkill))) {
+            matchedSkills += 1
+        }
+    })
     const skillScore = requiredSkills.length
-        ? Math.round(
-              (matchedSkills.length / requiredSkills.length) * 70
-          )
+        ? Math.round((matchedSkills / requiredSkills.length) * 50)
         : 0
 
-    // Availability = +15 for match, -10 for mismatch
+    // Domain = 25% (both users select from the same dropdown)
+    const domainScore =
+        normalizeText(requirement?.domain) &&
+        normalizeText(requirement?.domain) === normalizeText(volunteer?.domain)
+            ? 25
+            : 0
+
+    // City = 15%. Area/street are for precise information, not strict matching.
+    const requirementLocation = getLocationParts(requirement)
+    const volunteerLocation = getLocationParts(volunteer)
+    const cityScore =
+        requirementLocation.city &&
+        volunteerLocation.city &&
+        normalizeText(requirementLocation.city) === normalizeText(volunteerLocation.city)
+            ? 15
+            : 0
+
+    // Availability = 10%. Compare the volunteer's availability with the requirement date.
+    const availability = normalizeText(volunteer?.availability)
+    const dayType = getDayType(requirement?.date)
     let availabilityScore = 0
 
-    if (requirementAvailability === 'flexible') {
-        availabilityScore = 15
-    } else if (
-        requirementAvailability &&
-        volunteerAvailability === requirementAvailability
-    ) {
-        availabilityScore = 15
-    } else if (requirementAvailability) {
-        availabilityScore = -10
+    if (availability === 'flexible' || !dayType) {
+        availabilityScore = 10
+    } else if (availability === dayType) {
+        availabilityScore = 10
     }
 
-    // Location = +15 for match, -10 for mismatch
-    let locationScore = 0
-
-    if (
-        requirementLocation &&
-        volunteerLocation &&
-        volunteerLocation === requirementLocation
-    ) {
-        locationScore = 15
-    } else if (requirementLocation) {
-        locationScore = -10
-    }
-
-    return Math.max(
-        0,
-        Math.min(100, skillScore + availabilityScore + locationScore)
-    )
+    return Math.min(100, skillScore + domainScore + cityScore + availabilityScore)
 }
 
 function VolunteerDashboard() {
     const user = getCurrentUser()
-    const requirements = getRequirements().filter((r) => r.status !== 'closed')
+    const assignments = getAssignments()
+
+    // Show only requirements that are still available to this volunteer.
+    // Hide requirements that are already full or already assigned to this volunteer.
+    const requirements = getRequirements().filter((r) => {
+        if (r.status === 'closed') return false
+
+        const requirementAssignments = assignments.filter(
+            (a) => String(a.requirementId) === String(r.id)
+        )
+
+        const assignedCount = requirementAssignments.length
+        const volunteersNeeded = Math.max(1, Number(r.volunteersNeeded) || 1)
+
+        if (assignedCount >= volunteersNeeded) return false
+
+        const alreadyAssigned = requirementAssignments.some(
+            (a) => String(a.volunteerId) === String(user?.id)
+        )
+
+        return !alreadyAssigned
+    })
 
     const scored = requirements
         .map((requirement) => ({
@@ -676,7 +849,7 @@ function VolunteerDashboard() {
                                     <div className="avatar">{(o.ngoName || 'NG').slice(0, 2).toUpperCase()}</div>
                                     <div>
                                         <b>{o.title}</b>
-                                        <small>{o.ngoName} • {o.location} • {o.date}</small>
+                                        <small>{o.ngoName} • {formatLocation(o)} • {o.date}</small>
                                     </div>
                                     <div className="right">
                                         <b className="green">{o.score}%</b>
@@ -699,8 +872,9 @@ function VolunteerDashboard() {
                     <div className="tags">
                         {(user?.skills || []).length ? user.skills.map((s) => <span className="tag" key={s}>{s}</span>) : <span className="muted">No skills added.</span>}
                     </div>
-                    <p className="muted" style={{ marginTop: 18 }}>Availability: <b>{user?.availability || 'Not set'}</b></p>
-                    <p className="muted">Location: <b>{user?.location || 'Not set'}</b></p>
+                    <p className="muted" style={{ marginTop: 18 }}>Focus domains: <b>{(user?.domains || (user?.domain ? [user.domain] : [])).join(', ') || 'Not set'}</b></p>
+                    <p className="muted">Availability: <b>{user?.availability || 'Not set'}</b></p>
+                    <p className="muted">Location: <b>{formatLocation(user)}</b></p>
                 </section>
             </div>
         </Layout>
@@ -723,7 +897,10 @@ function VolunteerProfile() {
         name: user?.name || '',
         email: user?.email || '',
         phone: user?.phone || '',
-        location: user?.location || '',
+        domain: user?.domain || '',
+        city: user?.city || getLocationParts(user).city,
+        area: user?.area || getLocationParts(user).area,
+        street: user?.street || getLocationParts(user).street,
         availability: user?.availability || 'Weekdays',
         skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
     })
@@ -736,7 +913,10 @@ function VolunteerProfile() {
             name: user?.name || '',
             email: user?.email || '',
             phone: user?.phone || '',
-            location: user?.location || '',
+            domain: user?.domain || '',
+            city: user?.city || getLocationParts(user).city,
+            area: user?.area || getLocationParts(user).area,
+            street: user?.street || getLocationParts(user).street,
             availability: user?.availability || 'Weekdays',
             skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
         })
@@ -748,7 +928,11 @@ function VolunteerProfile() {
             ...user,
             name: form.name.trim(),
             phone: form.phone.trim(),
-            location: form.location.trim(),
+            domain: form.domain,
+            city: form.city.trim(),
+            area: form.area.trim(),
+            street: form.street.trim(),
+            location: [form.city.trim(), form.area.trim(), form.street.trim()].filter(Boolean).join(', '),
             availability: form.availability,
             skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
         }
@@ -765,7 +949,10 @@ function VolunteerProfile() {
             name: user?.name || '',
             email: user?.email || '',
             phone: user?.phone || '',
-            location: user?.location || '',
+            domain: user?.domain || '',
+            city: user?.city || getLocationParts(user).city,
+            area: user?.area || getLocationParts(user).area,
+            street: user?.street || getLocationParts(user).street,
             availability: user?.availability || 'Weekdays',
             skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
         })
@@ -784,7 +971,7 @@ function VolunteerProfile() {
                     <div className="profile-center">
                         <div className="avatar avatar-lg">{initials}</div>
                         <h2>{user?.name}</h2>
-                        <p>Volunteer • {user?.location || 'Location not set'} • Available {user?.availability || 'not set'}</p>
+                        <p>Volunteer • {formatLocation(user)} • Available {user?.availability || 'not set'}</p>
                         <div className="profile-stats">
                             <span><b>{getAssignments().filter((a) => a.volunteerId === user?.id).length}</b><small>Assignments</small></span>
                             <span><b>{getHistory().filter((h) => h.volunteerId === user?.id).reduce((sum, h) => sum + Number(h.hours || 0), 0)}</b><small>Hours</small></span>
@@ -802,8 +989,20 @@ function VolunteerProfile() {
                     <div className="form">
                         <label>Full name<input value={form.name} readOnly={!editing} onChange={(e) => update('name', e.target.value)} /></label>
                         <label>Email<input value={form.email} readOnly style={{ background: '#f3f4f6', cursor: 'not-allowed' }} /></label>
+                        <label>Domain
+                            {editing ? (
+                                <select value={form.domain || ''} onChange={(e) => update('domain', e.target.value)}>
+                                    <option value="">Select domain</option>
+                                    {DOMAINS.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+                                </select>
+                            ) : <input value={user?.domain || 'Not set'} readOnly />}
+                        </label>
                         <label>Phone<input value={form.phone} readOnly={!editing} onChange={(e) => update('phone', e.target.value)} /></label>
-                        <label>Location<input value={form.location} readOnly={!editing} onChange={(e) => update('location', e.target.value)} /></label>
+                        <div className="two">
+                            <label>City<input value={form.city} readOnly={!editing} onChange={(e) => update('city', e.target.value)} /></label>
+                            <label>Area<input value={form.area} readOnly={!editing} onChange={(e) => update('area', e.target.value)} /></label>
+                        </div>
+                        <label>Street / Road / Locality<input value={form.street} readOnly={!editing} onChange={(e) => update('street', e.target.value)} /></label>
                         <label>
                             Availability
                             {editing ? (
@@ -841,8 +1040,28 @@ function Opportunities() {
     const [sort, setSort] = useState('match')
     const interests = getInterests()
 
+    const assignments = getAssignments()
+
     const scored = requirements
         .filter((r) => r.status !== 'closed')
+        .filter((r) => {
+            const requirementAssignments = assignments.filter(
+                (a) => a.requirementId === r.id
+            )
+
+            const assignedCount = requirementAssignments.length
+            const volunteersNeeded = Math.max(1, Number(r.volunteersNeeded) || 1)
+
+            // Hide an opportunity once all required volunteer slots are filled.
+            if (assignedCount >= volunteersNeeded) return false
+
+            // Also hide it for this volunteer once they have already been assigned.
+            const alreadyAssignedToCurrentVolunteer = requirementAssignments.some(
+                (a) => String(a.volunteerId) === String(user?.id)
+            )
+
+            return !alreadyAssignedToCurrentVolunteer
+        })
         .map((r) => ({ ...r, score: calculateMatch(r, user) }))
         .filter((r) => {
             const q = query.toLowerCase()
@@ -868,7 +1087,7 @@ function Opportunities() {
         setRequirements(getRequirements())
     }
 
-    const domains = [...new Set(requirements.map((r) => r.domain).filter(Boolean))]
+    const domains = DOMAINS
 
     return (
         <Layout active="/opportunities">
@@ -892,7 +1111,7 @@ function Opportunities() {
                                 <h3 style={{ marginTop: 12 }}>{r.title}</h3>
                                 <p>{r.ngoName}</p>
                                 <p style={{ fontSize: 12, marginTop: 8 }}>
-                                    📍 {r.location}<br />
+                                    📍 {formatLocation(r)}<br />
                                     📅 {r.date}<br />
                                     ⏰ {r.time}<br />
                                     👥 {r.volunteersNeeded} volunteer{Number(r.volunteersNeeded) === 1 ? '' : 's'} needed
@@ -915,21 +1134,29 @@ function Accepted() {
     const user = getCurrentUser()
     const interests = getInterests().filter((i) => i.volunteerId === user?.id)
     const requirements = getRequirements()
-    const responded = interests.map((i) => requirements.find((r) => r.id === i.requirementId)).filter(Boolean)
+    const responded = interests.map((interest) => ({
+        interest,
+        requirement: requirements.find((r) => r.id === interest.requirementId),
+    })).filter((item) => item.requirement)
 
     return (
         <Layout active="/volunteer-accepted">
-            <Header eyebrow="VOLUNTEER RESPONSES" title="My Accepted Opportunities" text="Requirements where you have expressed interest and are awaiting NGO selection." />
+            <Header eyebrow="VOLUNTEER RESPONSES" title="My Accepted Opportunities" text="Requirements where you have expressed interest and can see the NGO selection status." />
             <section className="panel">
                 {responded.length === 0 ? <EmptyState title="No responses yet" text="Express interest in an opportunity and it will appear here." /> : (
                     <div className="list">
-                        {responded.map((r) => (
-                            <div className="item" key={r.id}>
-                                <div className="avatar">{r.ngoName.slice(0, 2).toUpperCase()}</div>
-                                <div><b>{r.title}</b><small>{r.ngoName} • {r.location} • {r.date} • {r.time}</small></div>
-                                <span className="badge badge-yellow">Awaiting NGO selection</span>
-                            </div>
-                        ))}
+                        {responded.map(({ interest, requirement }) => {
+                            const assigned = interest.status === 'assigned' || getAssignments().some((a) => a.requirementId === requirement.id && a.volunteerId === user.id)
+                            return (
+                                <div className="item" key={interest.id}>
+                                    <div className="avatar">{requirement.ngoName.slice(0, 2).toUpperCase()}</div>
+                                    <div><b>{requirement.title}</b><small>{requirement.ngoName} • {formatLocation(requirement)} • {requirement.date} • {requirement.time}</small></div>
+                                    <span className={assigned ? 'badge badge-green' : 'badge badge-yellow'}>
+                                        {assigned ? 'Selected by NGO ✓' : 'Awaiting NGO selection'}
+                                    </span>
+                                </div>
+                            )
+                        })}
                     </div>
                 )}
             </section>
@@ -949,54 +1176,76 @@ function VolunteerAssignments() {
         }
 
         const allAssignments = getAssignments()
-
-        const userAssignments = allAssignments.filter(
-            (assignment) =>
-                String(assignment.volunteerId) ===
-                String(currentUser.id)
+        setAssignments(
+            allAssignments.filter(
+                (assignment) =>
+                    String(assignment.volunteerId) ===
+                    String(currentUser.id)
+            )
         )
-
-        setAssignments(userAssignments)
     }
 
     const [assignments, setAssignments] = useState(() => {
         if (!user) return []
-
         return getAssignments().filter(
             (assignment) =>
-                String(assignment.volunteerId) ===
-                String(user.id)
+                String(assignment.volunteerId) === String(user.id)
         )
     })
 
     useEffect(() => {
-        // Load immediately
         loadAssignments()
-
-        // Same-tab updates
-        window.addEventListener(
-            'volunteerlink-data-change',
-            loadAssignments
-        )
-
-        // Other-tab updates
-        window.addEventListener(
-            'storage',
-            loadAssignments
-        )
+        window.addEventListener('volunteerlink-data-change', loadAssignments)
+        window.addEventListener('storage', loadAssignments)
 
         return () => {
-            window.removeEventListener(
-                'volunteerlink-data-change',
-                loadAssignments
-            )
-
-            window.removeEventListener(
-                'storage',
-                loadAssignments
-            )
+            window.removeEventListener('volunteerlink-data-change', loadAssignments)
+            window.removeEventListener('storage', loadAssignments)
         }
     }, [])
+
+    const completeAssignment = (assignment) => {
+        const endDateTime = getAssignmentEndDateTime(assignment)
+        if (!endDateTime || new Date() < endDateTime) return
+
+        const confirmed = window.confirm(
+            'Have you completed this activity?\n\nClick OK only if you actually participated in the activity. The assignment will be added to Participation History.'
+        )
+        if (!confirmed) return
+
+        const allAssignments = getAssignments().map((a) =>
+            a.id === assignment.id
+                ? { ...a, status: 'completed', completedAt: new Date().toISOString() }
+                : a
+        )
+        writeStorage(STORAGE.assignments, allAssignments)
+
+        const history = getHistory()
+        if (!history.some((h) => h.assignmentId === assignment.id)) {
+            history.push({
+                id: makeId('history'),
+                assignmentId: assignment.id,
+                requirementId: assignment.requirementId,
+                volunteerId: assignment.volunteerId,
+                ngoId: assignment.ngoId,
+                requirementTitle: assignment.requirementTitle,
+                ngoName: assignment.ngoName,
+                date: assignment.date,
+                time: assignment.time,
+                location: assignment.location,
+                hours: getAssignmentHours(assignment),
+                status: 'completed',
+                createdAt: new Date().toISOString(),
+            })
+            writeStorage(STORAGE.history, history)
+        }
+
+        setAssignments(
+            allAssignments.filter(
+                (a) => String(a.volunteerId) === String(user.id)
+            )
+        )
+    }
 
     return (
         <Layout active="/volunteer-assignments">
@@ -1014,58 +1263,70 @@ function VolunteerAssignments() {
                     />
                 ) : (
                     <div className="list">
-                        {assignments.map((assignment) => (
-                            <div
-                                className="item"
-                                key={assignment.id}
-                            >
-                                <div className="avatar">
-                                    {(assignment.ngoName || 'NG')
-                                        .slice(0, 2)
-                                        .toUpperCase()}
+                        {assignments.map((assignment) => {
+                            const endDateTime = getAssignmentEndDateTime(assignment)
+                            const canComplete = Boolean(
+                                endDateTime && new Date() >= endDateTime
+                            )
+                            const completed = assignment.status === 'completed'
+
+                            return (
+                                <div className="item" key={assignment.id}>
+                                    <div className="avatar">
+                                        {(assignment.ngoName || 'NG')
+                                            .slice(0, 2)
+                                            .toUpperCase()}
+                                    </div>
+
+                                    <div>
+                                        <b>{assignment.requirementTitle}</b>
+                                        <small>
+                                            {assignment.ngoName}
+                                            {' • '}
+                                            {formatLocation(assignment)}
+                                        </small>
+                                        <small>
+                                            📅 {assignment.date}
+                                            {' • '}
+                                            ⏰ {assignment.time}
+                                        </small>
+                                        <small>{assignment.description}</small>
+                                    </div>
+
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+                                        <span className={completed ? 'badge badge-green' : 'badge badge-blue'}>
+                                            {completed ? 'Completed' : 'Confirmed'}
+                                        </span>
+
+                                        {!completed && (
+                                            <button
+                                                className="action"
+                                                disabled={!canComplete}
+                                                onClick={() => completeAssignment(assignment)}
+                                                title={
+                                                    canComplete
+                                                        ? 'Mark this activity as completed'
+                                                        : 'This button becomes available after the activity end time'
+                                                }
+                                                style={{
+                                                    opacity: canComplete ? 1 : 0.5,
+                                                    cursor: canComplete ? 'pointer' : 'not-allowed',
+                                                }}
+                                            >
+                                                {canComplete ? 'Mark as Completed' : 'Available after activity'}
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-
-                                <div>
-                                    <b>
-                                        {assignment.requirementTitle}
-                                    </b>
-
-                                    <small>
-                                        {assignment.ngoName}
-                                        {' • '}
-                                        {assignment.location}
-                                    </small>
-
-                                    <small>
-                                        📅 {assignment.date}
-                                        {' • '}
-                                        ⏰ {assignment.time}
-                                    </small>
-
-                                    <small>
-                                        {assignment.description}
-                                    </small>
-                                </div>
-
-                                <span
-                                    className={
-                                        assignment.status === 'completed'
-                                            ? 'badge badge-green'
-                                            : 'badge badge-blue'
-                                    }
-                                >
-                                    {assignment.status === 'completed'
-                                        ? 'Completed'
-                                        : 'Confirmed'}
-                                </span>
-                            </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 )}
             </section>
         </Layout>
     )
 }
+
 function History() {
     const user = getCurrentUser()
     const isNgo = user?.role === 'ngo'
@@ -1129,7 +1390,7 @@ function NgoDashboard() {
                     <div className="panel-head"><div><h2>My requirements</h2><p>Requirements created by your organisation.</p></div><Link to="/ngo-requirements">View all</Link></div>
                     {requirements.length === 0 ? <EmptyState title="No requirements posted" text="Create your first volunteer requirement." /> : (
                         <div className="list">
-                            {requirements.slice(0, 5).map((r) => <div className="item" key={r.id}><div><b>{r.title}</b><small>{r.location} • {r.date} • {r.volunteersNeeded} needed</small></div><span className="badge badge-blue">{r.status}</span></div>)}
+                            {requirements.slice(0, 5).map((r) => <div className="item" key={r.id}><div><b>{r.title}</b><small>{formatLocation(r)} • {r.date} • {r.volunteersNeeded} needed</small></div><span className="badge badge-blue">{r.status}</span></div>)}
                         </div>
                     )}
                 </section>
@@ -1142,257 +1403,137 @@ function NgoDashboard() {
         </Layout>
     )
 }
+
+function formatTimeInput(value) {
+    if (!value) return ''
+    const [hourText, minuteText] = value.split(':')
+    let hour = Number(hourText)
+    const minute = minuteText || '00'
+    const period = hour >= 12 ? 'PM' : 'AM'
+    hour = hour % 12 || 12
+    return `${hour}:${minute} ${period}`
+}
+
 function Requirements() {
     const user = getCurrentUser()
-
     const [form, setForm] = useState({
         title: '',
         volunteersNeeded: 1,
         domain: '',
-        location: '',
+        city: '',
+        area: '',
+        street: '',
         date: '',
-        time: '',
-        availability: 'Flexible',
+        startTime: '',
+        endTime: '',
         skills: '',
         description: '',
     })
-
     const [message, setMessage] = useState('')
 
-    const update = (key, value) => {
-        setForm((prev) => ({
-            ...prev,
-            [key]: value,
-        }))
-    }
+    const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
 
-    const submit = async (e) => {
+    const submit = (e) => {
         e.preventDefault()
-        setMessage('')
 
-        try {
-            const response = await fetch(
-                'http://localhost:8080/api/requirements',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        title: form.title.trim(),
-                        volunteersNeeded: Number(form.volunteersNeeded),
-                        domain: form.domain.trim(),
-                        location: form.location.trim(),
-                        date: form.date,
-                        time: form.time.trim(),
-                        taskDescription: form.description.trim(),
-                        status: 'OPEN',
-                    }),
-                }
-            )
-
-            if (!response.ok) {
-                const errorMessage = await response.text()
-
-                setMessage(
-                    errorMessage || 'Failed to post requirement.'
-                )
-
-                return
-            }
-
-            await response.json()
-
-            setForm({
-                title: '',
-                volunteersNeeded: 1,
-                domain: '',
-                location: '',
-                date: '',
-                time: '',
-                availability: 'Flexible',
-                skills: '',
-                description: '',
-            })
-
-            setMessage('Requirement posted successfully.')
-
-        } catch (error) {
-            console.error('Requirement error:', error)
-
-            setMessage(
-                'Unable to connect to the backend.'
-            )
+        if (!form.startTime || !form.endTime) {
+            setMessage('Please select both start time and end time.')
+            return
         }
+
+        if (form.endTime <= form.startTime) {
+            setMessage('End time must be later than start time.')
+            return
+        }
+
+        const formattedTime = `${formatTimeInput(form.startTime)} - ${formatTimeInput(form.endTime)}`
+
+        const requirement = {
+            id: makeId('requirement'),
+            ngoId: user.id,
+            ngoName: user.organisation || user.name,
+            title: form.title.trim(),
+            volunteersNeeded: Number(form.volunteersNeeded),
+            domain: form.domain,
+            city: form.city.trim(),
+            area: form.area.trim(),
+            street: form.street.trim(),
+            location: [form.city.trim(), form.area.trim(), form.street.trim()].filter(Boolean).join(', '),
+            date: form.date,
+            time: formattedTime,
+            skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
+            description: form.description.trim(),
+            status: 'active',
+            createdAt: new Date().toISOString(),
+        }
+
+        writeStorage(STORAGE.requirements, [...getRequirements(), requirement])
+        setForm({ title: '', volunteersNeeded: 1, domain: '', city: '', area: '', street: '', date: '', startTime: '', endTime: '', skills: '', description: '' })
+        setMessage('Requirement posted successfully.')
     }
 
     return (
         <Layout ngo active="/requirements">
-
-            <Header
-                eyebrow="POST REQUIREMENT"
-                title="Create a volunteer requirement"
-                text="Describe the actual task so volunteers can find it and respond."
-            />
-
-            <form
-                className="panel form"
-                style={{ maxWidth: 850 }}
-                onSubmit={submit}
-            >
-
+            <Header eyebrow="POST REQUIREMENT" title="Create a volunteer requirement" text="Describe the actual task so volunteers can find it and respond." />
+            <form className="panel form" style={{ maxWidth: 850 }} onSubmit={submit}>
                 <div className="two">
-
-                    <label>
-                        Requirement title
-
-                        <input
-                            required
-                            value={form.title}
-                            onChange={(e) =>
-                                update('title', e.target.value)
-                            }
-                        />
-                    </label>
-
-                    <label>
-                        Volunteers needed
-
-                        <input
-                            required
-                            type="number"
-                            min="1"
-                            value={form.volunteersNeeded}
-                            onChange={(e) =>
-                                update(
-                                    'volunteersNeeded',
-                                    e.target.value
-                                )
-                            }
-                        />
-                    </label>
-
+                    <label>Requirement title<input required value={form.title} onChange={(e) => update('title', e.target.value)} /></label>
+                    <label>Volunteers needed<input required type="number" min="1" value={form.volunteersNeeded} onChange={(e) => update('volunteersNeeded', e.target.value)} /></label>
                 </div>
-
                 <div className="two">
-
-                    <label>
-                        Domain
-
-                        <input
-                            required
-                            value={form.domain}
-                            onChange={(e) =>
-                                update('domain', e.target.value)
-                            }
-                            placeholder="Education"
-                        />
-                    </label>
-
-                    <label>
-                        Location
-
-                        <input
-                            required
-                            value={form.location}
-                            onChange={(e) =>
-                                update('location', e.target.value)
-                            }
-                        />
-                    </label>
-
+                    <label>Domain<select required value={form.domain} onChange={(e) => update('domain', e.target.value)}>
+                        <option value="">Select domain</option>
+                        {DOMAINS.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+                    </select></label>
+                    <label>City<input required value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Mumbai" /></label>
                 </div>
-
                 <div className="two">
-
-                    <label>
-                        Date
-
-                        <input
-                            required
-                            type="date"
-                            value={form.date}
-                            onChange={(e) =>
-                                update('date', e.target.value)
-                            }
-                        />
-                    </label>
-
-                    <label>
-                        Time
-
-                        <input
-                            required
-                            value={form.time}
-                            onChange={(e) =>
-                                update('time', e.target.value)
-                            }
-                            placeholder="9 AM - 1 PM"
-                        />
-                    </label>
-
+                    <label>Area<input required value={form.area} onChange={(e) => update('area', e.target.value)} placeholder="Dadar" /></label>
+                    <label>Street / Road / Venue<input value={form.street} onChange={(e) => update('street', e.target.value)} placeholder="Senapati Bapat Marg" /></label>
                 </div>
-
-                <label>
-                    Availability
-
-                    <select
-                        value={form.availability}
-                        onChange={(e) =>
-                            update(
-                                'availability',
-                                e.target.value
-                            )
-                        }
-                    >
-                        <option>Weekdays</option>
-                        <option>Weekends</option>
-                        <option>Flexible</option>
-                    </select>
-                </label>
-
-                <label>
-                    Required skills
-
-                    <input
-                        required
-                        value={form.skills}
-                        onChange={(e) =>
-                            update('skills', e.target.value)
-                        }
-                        placeholder="Teaching, Communication"
-                    />
-                </label>
-
-                <label>
-                    Task description
-
-                    <textarea
-                        required
-                        rows="5"
-                        value={form.description}
-                        onChange={(e) =>
-                            update(
-                                'description',
-                                e.target.value
-                            )
-                        }
-                    />
-                </label>
-
-                <button className="btn btn-primary">
-                    Post requirement →
-                </button>
-
-                {message && (
-                    <span className="badge badge-green">
-                        {message}
-                    </span>
-                )}
-
+                <div className="two">
+                    <label>Date<input required type="date" value={form.date} onChange={(e) => update('date', e.target.value)} /></label>
+                    <div className="two">
+                        <label>Start time<input required type="time" value={form.startTime} onChange={(e) => update('startTime', e.target.value)} /></label>
+                        <label>End time<input required type="time" value={form.endTime} onChange={(e) => update('endTime', e.target.value)} /></label>
+                    </div>
+                    <p className="muted" style={{ marginTop: '-8px' }}>Select the exact start and end time for the activity.</p>
+                </div>
+                <label>Required skills<input required value={form.skills} onChange={(e) => update('skills', e.target.value)} placeholder="Teaching, Communication" /></label>
+                <label>Task description<textarea required rows="5" value={form.description} onChange={(e) => update('description', e.target.value)} /></label>
+                <button className="btn btn-primary">Post requirement →</button>
+                {message && <span className="badge badge-green">{message}</span>}
             </form>
+        </Layout>
+    )
+}
 
+function MyRequirements() {
+    const user = getCurrentUser()
+    const [requirements, setRequirements] = useState(getRequirements().filter((r) => r.ngoId === user?.id))
+
+    const closeRequirement = (id) => {
+        const all = getRequirements().map((r) => r.id === id ? { ...r, status: 'closed' } : r)
+        writeStorage(STORAGE.requirements, all)
+        setRequirements(all.filter((r) => r.ngoId === user.id))
+    }
+
+    return (
+        <Layout ngo active="/ngo-requirements">
+            <Header eyebrow="MY REQUIREMENTS" title="Requirements" text="Manage requirements posted by your organisation." button={<Link to="/requirements" className="btn btn-primary">+ Post requirement</Link>} />
+            <section className="panel">
+                {requirements.length === 0 ? <EmptyState title="No requirements yet" text="Post a requirement to start receiving volunteer responses." /> : (
+                    <table className="table">
+                        <thead><tr><th>Requirement</th><th>Needed</th><th>Responses</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                        {requirements.map((r) => {
+                            const count = getInterests().filter((i) => i.requirementId === r.id).length
+                            return <tr key={r.id}><td><b>{r.title}</b><small>{formatLocation(r)} • {r.date}</small></td><td>{r.volunteersNeeded}</td><td>{count}</td><td><span className="badge badge-blue">{r.status}</span></td><td>{r.status !== 'closed' && <button className="action" onClick={() => closeRequirement(r.id)}>Close</button>}</td></tr>
+                        })}
+                        </tbody>
+                    </table>
+                )}
+            </section>
         </Layout>
     )
 }
@@ -1430,6 +1571,15 @@ function Interested() {
             createdAt: new Date().toISOString(),
         })
         writeStorage(STORAGE.assignments, assignments)
+
+        // Mark this volunteer's response as selected by the NGO.
+        const updatedInterests = getInterests().map((interest) =>
+            interest.requirementId === req.id && interest.volunteerId === volunteer.id
+                ? { ...interest, status: 'assigned', assignedAt: new Date().toISOString() }
+                : interest
+        )
+        writeStorage(STORAGE.interests, updatedInterests)
+
         setAssigned(volunteer.name)
     }
 
@@ -1448,7 +1598,7 @@ function Interested() {
                                 {requirements.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
                             </select>
                         </label>
-                        {requirement && <p>{requirement.volunteersNeeded} needed • {requirement.location} • {requirement.date} • {requirement.time}</p>}
+                        {requirement && <p>{requirement.volunteersNeeded} needed • {formatLocation(requirement)} • {requirement.date} • {requirement.time}</p>}
                     </section>
 
                     <section>
@@ -1466,7 +1616,7 @@ function Interested() {
                                     <article className="match-card" key={interest.id}>
                                         <div className="match-top">
                                             <div className="avatar">{initials}</div>
-                                            <div><h3>{volunteer.name}</h3><p>{volunteer.location} • {volunteer.availability}</p><p>{volunteer.email} • {volunteer.phone}</p></div>
+                                            <div><h3>{volunteer.name}</h3><p>{formatLocation(volunteer)} • {volunteer.availability}</p><p>{volunteer.email} • {volunteer.phone}</p></div>
                                             <div className="big-score">{score}%</div>
                                         </div>
                                         <div className="tags">{(volunteer.skills || []).map((s) => <span className="tag" key={s}>✓ {s}</span>)}</div>
@@ -1501,7 +1651,7 @@ function VolunteerView() {
 
     return (
         <Layout ngo active="/ngo-interested">
-            <Header eyebrow="VOLUNTEER PROFILE REVIEW" title={volunteer.name} text={`Volunteer • ${volunteer.location || 'Location not set'} • ${volunteer.availability || 'Availability not set'}`} button={<Link to="/ngo-interested" className="btn btn-soft">← Back</Link>} />
+            <Header eyebrow="VOLUNTEER PROFILE REVIEW" title={volunteer.name} text={`Volunteer • ${formatLocation(volunteer)} • ${volunteer.availability || 'Availability not set'}`} button={<Link to="/ngo-interested" className="btn btn-soft">← Back</Link>} />
             <section className="panel">
                 <div className="profile-center">
                     <div className="avatar avatar-lg">{initials}</div>
@@ -1525,38 +1675,60 @@ function VolunteerView() {
 
 function NgoAssignments() {
     const user = getCurrentUser()
-    const assignments = getAssignments().filter((a) => a.ngoId === user?.id)
-    const [list, setList] = useState(assignments)
+    const loadAssignments = () =>
+        getAssignments().filter((a) => a.ngoId === user?.id)
 
-    const complete = (assignment) => {
-        const all = getAssignments().map((a) => a.id === assignment.id ? { ...a, status: 'completed' } : a)
-        writeStorage(STORAGE.assignments, all)
+    const [list, setList] = useState(loadAssignments)
 
-        const history = getHistory()
-        if (!history.some((h) => h.assignmentId === assignment.id)) {
-            history.push({
-                id: makeId('history'),
-                assignmentId: assignment.id,
-                requirementId: assignment.requirementId,
-                volunteerId: assignment.volunteerId,
-                ngoId: assignment.ngoId,
-                requirementTitle: assignment.requirementTitle,
-                ngoName: assignment.ngoName,
-                date: assignment.date,
-                hours: 0,
-                status: 'completed',
-                createdAt: new Date().toISOString(),
-            })
-            writeStorage(STORAGE.history, history)
+    useEffect(() => {
+        const refresh = () => setList(loadAssignments())
+        window.addEventListener('volunteerlink-data-change', refresh)
+        window.addEventListener('storage', refresh)
+        return () => {
+            window.removeEventListener('volunteerlink-data-change', refresh)
+            window.removeEventListener('storage', refresh)
         }
-        setList(all.filter((a) => a.ngoId === user.id))
-    }
+    }, [])
 
     return (
         <Layout ngo active="/ngo-assignments">
-            <Header eyebrow="ASSIGNMENT MANAGEMENT" title="Final Assignments" text="Confirmed tasks selected by your organisation." />
+            <Header
+                eyebrow="ASSIGNMENT MANAGEMENT"
+                title="Final Assignments"
+                text="Confirmed tasks selected by your organisation."
+            />
             <section className="panel">
-                {list.length === 0 ? <EmptyState title="No assignments yet" text="Select a volunteer from the responses to create an assignment." /> : <div className="list">{list.map((a) => <div className="item" key={a.id}><div className="avatar">{a.volunteerName.slice(0, 2).toUpperCase()}</div><div><b>{a.volunteerName}</b><small>{a.requirementTitle} • {a.location}</small><small>📅 {a.date} • ⏰ {a.time}</small><small>{a.description}</small></div><span className={`badge ${a.status === 'completed' ? 'badge-green' : 'badge-blue'}`}>{a.status === 'completed' ? 'Completed' : 'Assigned'}</span>{a.status !== 'completed' && <button className="action" onClick={() => complete(a)}>Mark completed</button>}</div>)}</div>}
+                {list.length === 0 ? (
+                    <EmptyState
+                        title="No assignments yet"
+                        text="Select a volunteer from the responses to create an assignment."
+                    />
+                ) : (
+                    <div className="list">
+                        {list.map((a) => (
+                            <div className="item" key={a.id}>
+                                <div className="avatar">
+                                    {(a.volunteerName || 'VO')
+                                        .slice(0, 2)
+                                        .toUpperCase()}
+                                </div>
+                                <div>
+                                    <b>{a.volunteerName}</b>
+                                    <small>
+                                        {a.requirementTitle} • {formatLocation(a)}
+                                    </small>
+                                    <small>
+                                        📅 {a.date} • ⏰ {a.time}
+                                    </small>
+                                    <small>{a.description}</small>
+                                </div>
+                                <span className={`badge ${a.status === 'completed' ? 'badge-green' : 'badge-blue'}`}>
+                                    {a.status === 'completed' ? 'Completed' : 'Assigned'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </section>
         </Layout>
     )
@@ -1610,5 +1782,6 @@ function App() {
 
     return pages[routePath] || <Home />
 }
+
 export default App
 
