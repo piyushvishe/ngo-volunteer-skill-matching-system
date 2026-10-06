@@ -19,6 +19,7 @@ const STORAGE = {
     interests: 'volunteerlink_interests',
     assignments: 'volunteerlink_assignments',
     history: 'volunteerlink_history',
+    ratings: 'volunteerlink_ratings',
 }
 
 const DOMAINS = [
@@ -199,6 +200,21 @@ function getAssignments() {
 
 function getHistory() {
     return readStorage(STORAGE.history, [])
+}
+
+function getRatings() {
+    return readStorage(STORAGE.ratings, [])
+}
+
+function getVolunteerAverageRating(volunteerId) {
+    const ratings = getRatings().filter(
+        (rating) => String(rating.volunteerId) === String(volunteerId)
+    )
+    if (!ratings.length) return null
+    const average = ratings.reduce(
+        (sum, rating) => sum + Number(rating.rating || 0), 0
+    ) / ratings.length
+    return Number(average.toFixed(1))
 }
 
 function makeId(prefix) {
@@ -975,7 +991,7 @@ function VolunteerProfile() {
                         <div className="profile-stats">
                             <span><b>{getAssignments().filter((a) => a.volunteerId === user?.id).length}</b><small>Assignments</small></span>
                             <span><b>{getHistory().filter((h) => h.volunteerId === user?.id).reduce((sum, h) => sum + Number(h.hours || 0), 0)}</b><small>Hours</small></span>
-                            <span><b>—</b><small>Rating</small></span>
+                            <span><b>{getVolunteerAverageRating(user?.id) ?? '—'}{getVolunteerAverageRating(user?.id) ? ' ⭐' : ''}</b><small>Rating</small></span>
                         </div>
                     </div>
                 </section>
@@ -1230,6 +1246,7 @@ function VolunteerAssignments() {
                 ngoId: assignment.ngoId,
                 requirementTitle: assignment.requirementTitle,
                 ngoName: assignment.ngoName,
+                volunteerName: assignment.volunteerName,
                 date: assignment.date,
                 time: assignment.time,
                 location: assignment.location,
@@ -1330,9 +1347,63 @@ function VolunteerAssignments() {
 function History() {
     const user = getCurrentUser()
     const isNgo = user?.role === 'ngo'
-    const history = getHistory().filter((h) => isNgo ? h.ngoId === user.id : h.volunteerId === user.id)
+    const [history, setHistory] = useState(() =>
+        getHistory().filter((h) => isNgo ? h.ngoId === user.id : h.volunteerId === user.id)
+    )
+    const [ratings, setRatings] = useState(getRatings)
+    const [ratingValues, setRatingValues] = useState({})
 
-    const completedHours = history.reduce((sum, h) => sum + Number(h.hours || 0), 0)
+    useEffect(() => {
+        const refresh = () => {
+            setHistory(
+                getHistory().filter((h) =>
+                    isNgo ? h.ngoId === user.id : h.volunteerId === user.id
+                )
+            )
+            setRatings(getRatings())
+        }
+        window.addEventListener('volunteerlink-data-change', refresh)
+        window.addEventListener('storage', refresh)
+        return () => {
+            window.removeEventListener('volunteerlink-data-change', refresh)
+            window.removeEventListener('storage', refresh)
+        }
+    }, [isNgo, user?.id])
+
+    const completedHours = history.reduce(
+        (sum, h) => sum + Number(h.hours || 0), 0
+    )
+
+    const submitRating = (historyItem) => {
+        const value = Number(ratingValues[historyItem.assignmentId] || 0)
+        if (value < 1 || value > 5) {
+            alert('Please select a rating from 1 to 5 stars.')
+            return
+        }
+
+        const existing = getRatings().find(
+            (rating) =>
+                String(rating.assignmentId) === String(historyItem.assignmentId) &&
+                String(rating.ngoId) === String(user.id)
+        )
+        if (existing) return
+
+        const nextRatings = [
+            ...getRatings(),
+            {
+                id: makeId('rating'),
+                assignmentId: historyItem.assignmentId,
+                requirementId: historyItem.requirementId,
+                volunteerId: historyItem.volunteerId,
+                ngoId: user.id,
+                rating: value,
+                createdAt: new Date().toISOString(),
+            },
+        ]
+
+        writeStorage(STORAGE.ratings, nextRatings)
+        setRatings(nextRatings)
+    }
 
     return (
         <Layout ngo={isNgo} active="/history">
@@ -1346,15 +1417,73 @@ function History() {
             </div>
 
             <section className="panel">
-                {history.length === 0 ? <EmptyState title="No history yet" text="Completed participation records will appear here." /> : (
+                {history.length === 0 ? (
+                    <EmptyState title="No history yet" text="Completed participation records will appear here." />
+                ) : (
                     <div className="list">
-                        {history.map((h) => (
-                            <div className="history-row" key={h.id}>
-                                <div className="history-icon">✓</div>
-                                <div><b>{h.requirementTitle}</b><small>{h.ngoName} • {h.date} • {h.hours || 0} hours</small></div>
-                                <span className="badge badge-green">{h.status}</span>
-                            </div>
-                        ))}
+                        {history.map((h) => {
+                            const existingRating = ratings.find(
+                                (rating) =>
+                                    String(rating.assignmentId) === String(h.assignmentId) &&
+                                    String(rating.ngoId) === String(user.id)
+                            )
+
+                            return (
+                                <div className="history-row" key={h.id}>
+                                    <div className="history-icon">✓</div>
+                                    <div style={{ flex: 1 }}>
+                                        <b>{h.requirementTitle}</b>
+                                        <small>{h.ngoName} • {h.date} • {h.hours || 0} hours</small>
+
+                                        {isNgo && (
+                                            <small style={{ marginTop: 6 }}>
+                                                Volunteer: <b>{
+                                                h.volunteerName ||
+                                                getVolunteers().find(
+                                                    (v) => String(v.id) === String(h.volunteerId)
+                                                )?.name ||
+                                                'Volunteer'
+                                            }</b>
+                                            </small>
+                                        )}
+
+                                        {isNgo && (
+                                            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                {existingRating ? (
+                                                    <span className="badge badge-green">
+                                                        Rated {existingRating.rating}/5 ⭐
+                                                    </span>
+                                                ) : (
+                                                    <>
+                                                        <select
+                                                            value={ratingValues[h.assignmentId] || ''}
+                                                            onChange={(e) =>
+                                                                setRatingValues((prev) => ({
+                                                                    ...prev,
+                                                                    [h.assignmentId]: e.target.value,
+                                                                }))
+                                                            }
+                                                            style={{ width: 120 }}
+                                                        >
+                                                            <option value="">Rate volunteer</option>
+                                                            <option value="1">1 ⭐</option>
+                                                            <option value="2">2 ⭐</option>
+                                                            <option value="3">3 ⭐</option>
+                                                            <option value="4">4 ⭐</option>
+                                                            <option value="5">5 ⭐</option>
+                                                        </select>
+                                                        <button type="button" className="action" onClick={() => submitRating(h)}>
+                                                            Submit Rating
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span className="badge badge-green">{h.status}</span>
+                                </div>
+                            )
+                        })}
                     </div>
                 )}
             </section>
@@ -1552,8 +1681,26 @@ function Interested() {
 
     const assign = (volunteer, req) => {
         if (!req) return
+
         const assignments = getAssignments()
-        if (assignments.some((a) => a.requirementId === req.id && a.volunteerId === volunteer.id)) return
+        const requirementAssignments = assignments.filter(
+            (a) => String(a.requirementId) === String(req.id)
+        )
+        const volunteersNeeded = Math.max(1, Number(req.volunteersNeeded) || 1)
+
+        // Never allow the NGO to assign more volunteers than requested.
+        if (requirementAssignments.length >= volunteersNeeded) {
+            alert(`This requirement already has all ${volunteersNeeded} volunteer(s) assigned.`)
+            return
+        }
+
+        if (
+            requirementAssignments.some(
+                (a) => String(a.volunteerId) === String(volunteer.id)
+            )
+        ) {
+            return
+        }
 
         assignments.push({
             id: makeId('assignment'),
@@ -1598,7 +1745,17 @@ function Interested() {
                                 {requirements.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
                             </select>
                         </label>
-                        {requirement && <p>{requirement.volunteersNeeded} needed • {formatLocation(requirement)} • {requirement.date} • {requirement.time}</p>}
+                        {requirement && (
+                            <p>
+                                {Math.max(
+                                    0,
+                                    Number(requirement.volunteersNeeded || 1) -
+                                    getAssignments().filter(
+                                        (a) => String(a.requirementId) === String(requirement.id)
+                                    ).length
+                                )} volunteer(s) still needed • {formatLocation(requirement)} • {requirement.date} • {requirement.time}
+                            </p>
+                        )}
                     </section>
 
                     <section>
@@ -1610,7 +1767,18 @@ function Interested() {
                                 if (!volunteer) return null
                                 const score = calculateMatch(requirement, volunteer)
                                 const initials = volunteer.name.split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()
-                                const alreadyAssigned = getAssignments().some((a) => a.requirementId === requirement.id && a.volunteerId === volunteer.id)
+                                const requirementAssignments = getAssignments().filter(
+                                    (a) => String(a.requirementId) === String(requirement.id)
+                                )
+                                const volunteersNeeded = Math.max(
+                                    1,
+                                    Number(requirement.volunteersNeeded) || 1
+                                )
+                                const alreadyAssigned = requirementAssignments.some(
+                                    (a) => String(a.volunteerId) === String(volunteer.id)
+                                )
+                                const requirementFull =
+                                    requirementAssignments.length >= volunteersNeeded
 
                                 return (
                                     <article className="match-card" key={interest.id}>
@@ -1622,7 +1790,17 @@ function Interested() {
                                         <div className="tags">{(volunteer.skills || []).map((s) => <span className="tag" key={s}>✓ {s}</span>)}</div>
                                         <div className="actions">
                                             <Link to={`/volunteer-view?id=${volunteer.id}`} className="btn btn-soft">View full profile</Link>
-                                            <button className="btn btn-primary" disabled={alreadyAssigned} onClick={() => assign(volunteer, requirement)}>{alreadyAssigned ? 'Assigned ✓' : 'Select & Assign'}</button>
+                                            <button
+                                                className="btn btn-primary"
+                                                disabled={alreadyAssigned || requirementFull}
+                                                onClick={() => assign(volunteer, requirement)}
+                                            >
+                                                {alreadyAssigned
+                                                    ? 'Assigned ✓'
+                                                    : requirementFull
+                                                        ? 'Requirement Full'
+                                                        : 'Select & Assign'}
+                                            </button>
                                         </div>
                                     </article>
                                 )
@@ -1660,7 +1838,7 @@ function VolunteerView() {
                     <div className="profile-stats">
                         <span><b>{getAssignments().filter((a) => a.volunteerId === volunteer.id).length}</b><small>Assignments</small></span>
                         <span><b>{assignments.reduce((sum, h) => sum + Number(h.hours || 0), 0)}</b><small>Hours</small></span>
-                        <span><b>—</b><small>Rating</small></span>
+                        <span><b>{getVolunteerAverageRating(volunteer.id) ?? '—'}{getVolunteerAverageRating(volunteer.id) ? ' ⭐' : ''}</b><small>Rating</small></span>
                     </div>
                 </div>
                 <hr style={{ border: 0, borderTop: '1px solid #edf1f5', margin: '20px 0' }} />
