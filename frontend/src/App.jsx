@@ -377,85 +377,197 @@ function Login() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState('')
+    const [loading, setLoading] = useState(false)
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault()
         setError('')
+        setLoading(true)
 
-        const users = getUsers()
-        const user = users.find(
-            (u) =>
-                u.email.toLowerCase() === email.trim().toLowerCase() &&
-                u.password === password &&
-                u.role === role,
-        )
+        try {
+            const response = await fetch(
+                'http://localhost:8080/api/auth/login',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        email: email.trim(),
+                        password: password,
+                    }),
+                }
+            )
 
-        if (!user) {
-            setError('Invalid email, password, or account type.')
-            return
+            if (!response.ok) {
+                const message = await response.text()
+
+                setError(
+                    message ||
+                    'Invalid email or password.'
+                )
+
+                return
+            }
+
+            const backendUser = await response.json()
+
+            // Convert backend role to the format
+            // currently used by the frontend
+            const frontendRole =
+                String(backendUser.role).toLowerCase()
+
+            // Store the backend user locally so the
+            // existing frontend can continue using getCurrentUser()
+            const user = {
+                id: backendUser.id,
+                name: backendUser.name,
+                email: backendUser.email,
+                role: frontendRole,
+            }
+
+            writeStorage(
+                STORAGE.currentUser,
+                user
+            )
+
+            // Go to the correct dashboard
+            go(
+                frontendRole === 'ngo'
+                    ? '/ngo-dashboard'
+                    : '/volunteer-dashboard'
+            )
+
+        } catch (error) {
+            console.error(
+                'Login error:',
+                error
+            )
+
+            setError(
+                'Unable to connect to the backend.'
+            )
+        } finally {
+            setLoading(false)
         }
-
-        writeStorage(STORAGE.currentUser, user)
-        go(role === 'ngo' ? '/ngo-dashboard' : '/volunteer-dashboard')
     }
 
     return (
         <AuthShell>
             <div className="auth-card">
+
                 <div className="auth-info">
-                    <span className="eyebrow">WELCOME BACK</span>
-                    <h1>Continue your community journey.</h1>
+                    <span className="eyebrow">
+                        WELCOME BACK
+                    </span>
+
+                    <h1>
+                        Continue your community journey.
+                    </h1>
+
                     <p>
-                        Volunteers discover opportunities. Organisations review responses
+                        Volunteers discover opportunities.
+                        Organisations review responses
                         and manage assignments.
                     </p>
                 </div>
 
-                <form className="form" onSubmit={submit}>
+                <form
+                    className="form"
+                    onSubmit={submit}
+                >
                     <h2>Sign in</h2>
-                    <p className="muted">Use the account you created on VolunteerLink.</p>
+
+                    <p className="muted">
+                        Use the account you created
+                        on VolunteerLink.
+                    </p>
 
                     <label>
                         Email
+
                         <input
                             type="email"
                             required
                             value={email}
-                            onChange={(e) => setEmail(e.target.value)}
+                            onChange={(e) =>
+                                setEmail(e.target.value)
+                            }
                             placeholder="you@example.com"
                         />
                     </label>
 
                     <label>
                         Password
+
                         <input
                             type="password"
                             required
                             value={password}
-                            onChange={(e) => setPassword(e.target.value)}
+                            onChange={(e) =>
+                                setPassword(e.target.value)
+                            }
                             placeholder="••••••••"
                         />
                     </label>
 
                     <label>
                         Login as
-                        <select value={role} onChange={(e) => setRole(e.target.value)}>
-                            <option value="volunteer">Volunteer</option>
-                            <option value="ngo">Organisation / NGO</option>
+
+                        <select
+                            value={role}
+                            onChange={(e) =>
+                                setRole(e.target.value)
+                            }
+                        >
+                            <option value="volunteer">
+                                Volunteer
+                            </option>
+
+                            <option value="ngo">
+                                Organisation / NGO
+                            </option>
                         </select>
                     </label>
 
-                    {error && <div className="form-error">{error}</div>}
+                    {error && (
+                        <div className="form-error">
+                            {error}
+                        </div>
+                    )}
 
-                    <button className="btn btn-primary btn-block">Sign in →</button>
+                    <button
+                        className="btn btn-primary btn-block"
+                        disabled={loading}
+                    >
+                        {loading
+                            ? 'Signing in...'
+                            : 'Sign in →'}
+                    </button>
 
-                    <p style={{ textAlign: 'center', marginTop: 18, fontSize: 12 }}>
+                    <p
+                        style={{
+                            textAlign: 'center',
+                            marginTop: 18,
+                            fontSize: 12,
+                        }}
+                    >
                         New here?{' '}
-                        <Link to="/register" style={{ color: '#2563eb', fontWeight: 700 }}>
+
+                        <Link
+                            to="/register"
+                            style={{
+                                color: '#2563eb',
+                                fontWeight: 700,
+                            }}
+                        >
                             Create account
                         </Link>
                     </p>
+
                 </form>
+
             </div>
         </AuthShell>
     )
@@ -802,6 +914,49 @@ function VolunteerDashboard() {
     const user = getCurrentUser()
     const assignments = getAssignments()
 
+    const [applications, setApplications] = useState([])
+    const [backendRequirements, setBackendRequirements] = useState([])
+    const [backendAssignments, setBackendAssignments] = useState([])
+
+    useEffect(() => {
+        fetch('http://localhost:8080/api/applications', {
+            credentials: 'include',
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch applications')
+                }
+                return response.json()
+            })
+            .then((data) => {
+                setApplications(data)
+            })
+            .catch((error) => {
+                console.error('Applications error:', error)
+            })
+    }, [])
+    useEffect(() => {
+        fetch('http://localhost:8080/api/requirements')
+            .then((response) => response.json())
+            .then((data) => {
+                setBackendRequirements(data)
+            })
+            .catch((error) => {
+                console.error('Requirements error:', error)
+            })
+    }, [])
+    useEffect(() => {
+        fetch('http://localhost:8080/api/assignments')
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch assignments')
+                }
+                return response.json()
+            })
+            .then((data) => setBackendAssignments(data))
+            .catch((error) => console.error('Assignments error:', error))
+    }, [])
+
     // Show only requirements that are still available to this volunteer.
     // Hide requirements that are already full or already assigned to this volunteer.
     const requirements = getRequirements().filter((r) => {
@@ -841,8 +996,18 @@ function VolunteerDashboard() {
 
             <div className="metric-grid">
                 <div className="metric"><span>Available opportunities</span><b>{requirements.length}</b></div>
-                <div className="metric"><span>My responses</span><b>{getInterests().filter((i) => i.volunteerId === user?.id).length}</b></div>
-                <div className="metric"><span>Assignments</span><b>{getAssignments().filter((a) => a.volunteerId === user?.id).length}</b></div>
+                <div className="metric">
+                    <span>My applications</span>
+                    <b>{applications.length}</b>
+                </div>
+                <div className="metric">
+                    <span>Assignments</span>
+                    <b>
+                        {backendAssignments.filter(
+                            (a) => String(a.volunteer?.id) === String(user?.id)
+                        ).length}
+                    </b>
+                </div>
                 <div className="metric"><span>Completed</span><b>{getHistory().filter((h) => h.volunteerId === user?.id).length}</b></div>
             </div>
 
@@ -892,6 +1057,98 @@ function VolunteerDashboard() {
                     <p className="muted">Availability: <b>{user?.availability || 'Not set'}</b></p>
                     <p className="muted">Location: <b>{formatLocation(user)}</b></p>
                 </section>
+
+                <section className="panel">
+                    <div className="panel-head">
+                        <div>
+                            <h2>My applications</h2>
+                            <p>Track the status of your applications.</p>
+                        </div>
+                    </div>
+
+                    {applications.length === 0 ? (
+                        <EmptyState
+                            title="No applications yet"
+                            text="Apply for an opportunity to see it here."
+                        />
+                    ) : (
+                        <div className="list">
+                            {applications.map((application) => (
+                                <div className="item" key={application.id}>
+                                    <div className="avatar">AP</div>
+
+                                    <div>
+                                        <b>
+                                            {backendRequirements.find(
+                                                (r) => String(r.id) === String(application.requirementId)
+                                            )?.title || `Requirement #${application.requirementId}`}
+                                        </b>
+
+                                        <small>
+                                            {backendRequirements.find(
+                                                (r) => String(r.id) === String(application.requirementId)
+                                            )?.ngo?.organisationName || 'NGO'}
+                                            {' • '}
+                                            Application ID: {application.id}
+                                        </small>
+                                    </div>
+
+                                    <div className="right">
+                                        <b className="green">
+                                            {application.status}
+                                        </b>
+                                        <small>Status</small>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </section>
+                <section className="panel">
+                    <div className="panel-head">
+                        <div>
+                            <h2>My Assignments</h2>
+                            <p>Opportunities assigned to you by NGOs.</p>
+                        </div>
+                    </div>
+
+                    {backendAssignments.filter(
+                        (a) => String(a.volunteer?.user?.id) === String(user?.id)
+                    ).length === 0 ? (
+                        <EmptyState
+                            title="No assignments yet"
+                            text="Accepted applications will appear here."
+                        />
+                    ) : (
+                        <div className="list">
+                            {backendAssignments
+                                .filter(
+                                    (a) => String(a.volunteer?.user?.id) === String(user?.id)
+                                )
+                                .map((assignment) => (
+                                    <div className="item" key={assignment.id}>
+                                        <div className="avatar">AS</div>
+
+                                        <div>
+                                            <b>{assignment.requirement?.title || 'Assignment'}</b>
+                                            <small>
+                                                {assignment.requirement?.ngo?.organisationName || 'NGO'}
+                                                {' • '}
+                                                {assignment.requirement?.location || 'Location not set'}
+                                                {' • '}
+                                                {assignment.requirement?.date || 'Date not set'}
+                                            </small>
+                                        </div>
+
+                                        <div className="right">
+                                            <b className="green">{assignment.status}</b>
+                                            <small>{assignment.requirement?.time || ''}</small>
+                                        </div>
+                                    </div>
+                                ))}
+                        </div>
+                    )}
+                </section>
             </div>
         </Layout>
     )
@@ -909,6 +1166,8 @@ function EmptyState({ title, text }) {
 function VolunteerProfile() {
     const [user, setUser] = useState(getCurrentUser)
     const [editing, setEditing] = useState(false)
+    const [availableSkills, setAvailableSkills] = useState([])
+    const [backendVolunteerSkills, setBackendVolunteerSkills] = useState([])
     const [form, setForm] = useState({
         name: user?.name || '',
         email: user?.email || '',
@@ -920,6 +1179,45 @@ function VolunteerProfile() {
         availability: user?.availability || 'Weekdays',
         skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
     })
+
+    useEffect(() => {
+        fetch('http://localhost:8080/api/skills')
+            .then((res) => {
+                if (!res.ok) throw new Error('Failed to load skills')
+                return res.json()
+            })
+            .then(setAvailableSkills)
+            .catch((err) => console.error('Skills error:', err))
+    }, [])
+
+    useEffect(() => {
+        Promise.all([
+            fetch('http://localhost:8080/api/volunteer-skills').then((res) => res.json()),
+            fetch('http://localhost:8080/api/volunteers').then((res) => res.json()),
+        ])
+            .then(([links, volunteers]) => {
+                const volunteer = volunteers.find(
+                    (v) => String(v.user?.id) === String(user?.id)
+                )
+
+                if (!volunteer) return
+
+                const mine = links.filter(
+                    (vs) => String(vs.volunteer?.id) === String(volunteer.id)
+                )
+
+                setBackendVolunteerSkills(mine)
+
+                setForm((prev) => ({
+                    ...prev,
+                    skills: mine
+                        .map((vs) => vs.skill?.name)
+                        .filter(Boolean)
+                        .join(', '),
+                }))
+            })
+            .catch((err) => console.error('Volunteer skills error:', err))
+    }, [user?.id])
 
     const initials = (user?.name || 'Volunteer')
         .split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()
@@ -939,27 +1237,116 @@ function VolunteerProfile() {
         setEditing(true)
     }
 
-    const saveProfile = () => {
-        const updatedUser = {
-            ...user,
-            name: form.name.trim(),
-            phone: form.phone.trim(),
-            domain: form.domain,
-            city: form.city.trim(),
-            area: form.area.trim(),
-            street: form.street.trim(),
-            location: [form.city.trim(), form.area.trim(), form.street.trim()].filter(Boolean).join(', '),
-            availability: form.availability,
-            skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
+    const saveProfile = async () => {
+        try {
+            const updatedUser = {
+                ...user,
+                name: form.name.trim(),
+                phone: form.phone.trim(),
+                domain: form.domain,
+                city: form.city.trim(),
+                area: form.area.trim(),
+                street: form.street.trim(),
+                location: [form.city.trim(), form.area.trim(), form.street.trim()]
+                    .filter(Boolean)
+                    .join(', '),
+                availability: form.availability,
+                skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
+            }
+
+            const volunteersResponse = await fetch('http://localhost:8080/api/volunteers')
+            if (!volunteersResponse.ok) throw new Error('Could not load volunteers')
+
+            const volunteers = await volunteersResponse.json()
+            const volunteer = volunteers.find(
+                (v) => String(v.user?.id) === String(user?.id)
+            )
+
+            if (!volunteer) {
+                alert('Volunteer profile not found in the database.')
+                return
+            }
+
+            const requestedNames = updatedUser.skills.map((s) => s.toLowerCase())
+            const skillMap = new Map(
+                availableSkills.map((s) => [s.name.toLowerCase(), s])
+            )
+
+            // Create skills that don't exist yet.
+            for (const name of updatedUser.skills) {
+                if (!skillMap.has(name.toLowerCase())) {
+                    const response = await fetch('http://localhost:8080/api/skills', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name }),
+                    })
+
+                    if (!response.ok) throw new Error(`Could not create skill: ${name}`)
+
+                    const created = await response.json()
+                    skillMap.set(created.name.toLowerCase(), created)
+                }
+            }
+
+            const desiredSkills = requestedNames
+                .map((name) => skillMap.get(name))
+                .filter(Boolean)
+
+            const desiredIds = new Set(desiredSkills.map((s) => String(s.id)))
+            const existingIds = new Set(
+                backendVolunteerSkills.map((vs) => String(vs.skill?.id))
+            )
+
+            // Add new volunteer-skill links.
+            for (const skill of desiredSkills) {
+                if (!existingIds.has(String(skill.id))) {
+                    const response = await fetch('http://localhost:8080/api/volunteer-skills', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            volunteer: { id: volunteer.id },
+                            skill: { id: skill.id },
+                        }),
+                    })
+
+                    if (!response.ok) throw new Error(`Could not add skill: ${skill.name}`)
+                }
+            }
+
+            // Remove links for skills that were deleted from the profile.
+            for (const link of backendVolunteerSkills) {
+                if (!desiredIds.has(String(link.skill?.id))) {
+                    const response = await fetch(
+                        `http://localhost:8080/api/volunteer-skills/${link.id}`,
+                        { method: 'DELETE' }
+                    )
+
+                    if (!response.ok) throw new Error('Could not remove an old skill')
+                }
+            }
+
+            writeStorage(
+                STORAGE.users,
+                getUsers().map((u) => u.id === updatedUser.id ? updatedUser : u)
+            )
+            writeStorage(STORAGE.currentUser, updatedUser)
+
+            setUser(updatedUser)
+            setBackendVolunteerSkills(
+                desiredSkills.map((skill) => ({
+                    id: `skill-${skill.id}`,
+                    volunteer: { id: volunteer.id },
+                    skill,
+                }))
+            )
+            setEditing(false)
+            alert('Profile and skills saved successfully!')
+        } catch (error) {
+            console.error('Save profile error:', error)
+            alert(`Could not save profile: ${error.message}`)
         }
-
-        const users = getUsers().map((u) => u.id === updatedUser.id ? updatedUser : u)
-        writeStorage(STORAGE.users, users)
-        writeStorage(STORAGE.currentUser, updatedUser)
-        setUser(updatedUser)
-        setEditing(false)
     }
-
+    
     const cancelEditing = () => {
         setForm({
             name: user?.name || '',
@@ -1050,98 +1437,528 @@ function VolunteerProfile() {
 
 function Opportunities() {
     const user = getCurrentUser()
-    const [requirements, setRequirements] = useState(getRequirements)
+
+    const [requirements, setRequirements] = useState([])
     const [query, setQuery] = useState('')
     const [domain, setDomain] = useState('all')
     const [sort, setSort] = useState('match')
-    const interests = getInterests()
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
 
+    const interests = getInterests()
     const assignments = getAssignments()
+
+    // Load requirements from Spring Boot backend
+    useEffect(() => {
+        const loadRequirements = async () => {
+            try {
+                setLoading(true)
+                setError('')
+
+                // Get requirements from backend
+                const requirementsResponse = await fetch(
+                    'http://localhost:8080/api/requirements',
+                    {
+                        method: 'GET',
+                        credentials: 'include',
+                    }
+                )
+
+                if (!requirementsResponse.ok) {
+                    const message = await requirementsResponse.text()
+                    throw new Error(
+                        message || 'Failed to load requirements.'
+                    )
+                }
+
+                const requirementsData =
+                    await requirementsResponse.json()
+
+                // Get requirement-skill relationships
+                let requirementSkillsData = []
+
+                try {
+                    const requirementSkillsResponse =
+                        await fetch(
+                            'http://localhost:8080/api/requirement-skills',
+                            {
+                                method: 'GET',
+                                credentials: 'include',
+                            }
+                        )
+
+                    if (requirementSkillsResponse.ok) {
+                        requirementSkillsData =
+                            await requirementSkillsResponse.json()
+                    }
+                } catch (error) {
+                    console.error(
+                        'Requirement skills loading error:',
+                        error
+                    )
+                }
+
+                // Create skills grouped by requirement ID
+                const skillsByRequirement = {}
+
+                requirementSkillsData.forEach((item) => {
+                    const requirementId =
+                        item?.requirement?.id
+
+                    const skillName =
+                        item?.skill?.name
+
+                    if (
+                        requirementId != null &&
+                        skillName
+                    ) {
+                        if (
+                            !skillsByRequirement[requirementId]
+                        ) {
+                            skillsByRequirement[requirementId] = []
+                        }
+
+                        if (
+                            !skillsByRequirement[
+                                requirementId
+                                ].includes(skillName)
+                        ) {
+                            skillsByRequirement[
+                                requirementId
+                                ].push(skillName)
+                        }
+                    }
+                })
+
+                // Convert backend requirements into
+                // the format used by the frontend
+                const mappedRequirements =
+                    requirementsData.map(
+                        (requirement) => ({
+                            id: requirement.id,
+
+                            title:
+                                requirement.title || '',
+
+                            volunteersNeeded:
+                                requirement.volunteersNeeded || 1,
+
+                            domain:
+                                requirement.domain || '',
+
+                            location:
+                                requirement.location || '',
+
+                            date:
+                                requirement.date || '',
+
+                            time:
+                                requirement.time || '',
+
+                            description:
+                                requirement.taskDescription || '',
+
+                            status:
+                                String(
+                                    requirement.status || ''
+                                ).toLowerCase(),
+
+                            ngoId:
+                                requirement?.ngo?.user?.id ??
+                                requirement?.ngo?.id,
+
+                            ngoName:
+                                requirement?.ngo
+                                    ?.organisationName ||
+                                requirement?.ngo?.user?.name ||
+                                'NGO',
+
+                            skills:
+                                skillsByRequirement[
+                                    requirement.id
+                                    ] || [],
+
+                            createdAt:
+                                requirement.createdAt || '',
+                        })
+                    )
+
+                setRequirements(mappedRequirements)
+
+            } catch (error) {
+                console.error(
+                    'Load requirements error:',
+                    error
+                )
+
+                setError(
+                    error.message ||
+                    'Unable to connect to the backend.'
+                )
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        loadRequirements()
+    }, [])
 
     const scored = requirements
         .filter((r) => r.status !== 'closed')
+
         .filter((r) => {
-            const requirementAssignments = assignments.filter(
-                (a) => a.requirementId === r.id
+            const requirementAssignments =
+                assignments.filter(
+                    (a) =>
+                        String(a.requirementId) ===
+                        String(r.id)
+                )
+
+            const assignedCount =
+                requirementAssignments.length
+
+            const volunteersNeeded = Math.max(
+                1,
+                Number(r.volunteersNeeded) || 1
             )
 
-            const assignedCount = requirementAssignments.length
-            const volunteersNeeded = Math.max(1, Number(r.volunteersNeeded) || 1)
+            // Hide an opportunity once all required
+            // volunteer slots are filled.
+            if (
+                assignedCount >= volunteersNeeded
+            ) {
+                return false
+            }
 
-            // Hide an opportunity once all required volunteer slots are filled.
-            if (assignedCount >= volunteersNeeded) return false
-
-            // Also hide it for this volunteer once they have already been assigned.
-            const alreadyAssignedToCurrentVolunteer = requirementAssignments.some(
-                (a) => String(a.volunteerId) === String(user?.id)
-            )
+            // Hide if this volunteer is already assigned.
+            const alreadyAssignedToCurrentVolunteer =
+                requirementAssignments.some(
+                    (a) =>
+                        String(a.volunteerId) ===
+                        String(user?.id)
+                )
 
             return !alreadyAssignedToCurrentVolunteer
         })
-        .map((r) => ({ ...r, score: calculateMatch(r, user) }))
+
+        .map((r) => ({
+            ...r,
+            score: calculateMatch(r, user),
+        }))
+
         .filter((r) => {
             const q = query.toLowerCase()
-            const matchesQuery = !q || r.title.toLowerCase().includes(q) || r.ngoName.toLowerCase().includes(q) || (r.domain || '').toLowerCase().includes(q)
-            const matchesDomain = domain === 'all' || r.domain === domain
+
+            const matchesQuery =
+                !q ||
+                r.title
+                    .toLowerCase()
+                    .includes(q) ||
+                r.ngoName
+                    .toLowerCase()
+                    .includes(q) ||
+                (r.domain || '')
+                    .toLowerCase()
+                    .includes(q)
+
+            const matchesDomain =
+                domain === 'all' ||
+                r.domain === domain
+
             return matchesQuery && matchesDomain
         })
-        .sort((a, b) => sort === 'latest' ? new Date(b.createdAt) - new Date(a.createdAt) : b.score - a.score)
 
-    const respond = (requirement) => {
-        const existing = getInterests()
-        if (existing.some((i) => i.requirementId === requirement.id && i.volunteerId === user.id)) return
+        .sort((a, b) =>
+            sort === 'latest'
+                ? new Date(b.createdAt) -
+                new Date(a.createdAt)
+                : b.score - a.score
+        )
 
-        existing.push({
-            id: makeId('interest'),
-            requirementId: requirement.id,
-            volunteerId: user.id,
-            ngoId: requirement.ngoId,
-            status: 'interested',
-            createdAt: new Date().toISOString(),
-        })
-        writeStorage(STORAGE.interests, existing)
-        setRequirements(getRequirements())
+    // Volunteer clicks "I'm Interested"
+    const respond = async (requirement) => {
+        try {
+            const response = await fetch(
+                'http://localhost:8080/api/applications',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        requirement: {
+                            id: requirement.id,
+                        },
+                    }),
+                }
+            )
+
+            if (!response.ok) {
+                const message = await response.text()
+
+                alert(
+                    message ||
+                    'Failed to submit application.'
+                )
+
+                return
+            }
+
+            const application =
+                await response.json()
+
+            console.log(
+                'Application submitted:',
+                application
+            )
+
+            // Keep the button showing "Interested"
+            // in the current frontend UI.
+            const existing = getInterests()
+
+            existing.push({
+                id: makeId('interest'),
+                requirementId: requirement.id,
+                volunteerId: user.id,
+                ngoId: requirement.ngoId,
+                status: 'interested',
+                createdAt: new Date().toISOString(),
+            })
+
+            writeStorage(
+                STORAGE.interests,
+                existing
+            )
+
+            setRequirements((current) => [
+                ...current,
+            ])
+
+            alert(
+                'Application submitted successfully!'
+            )
+
+        } catch (error) {
+            console.error(
+                'Application error:',
+                error
+            )
+
+            alert(
+                'Unable to connect to the backend.'
+            )
+        }
+    }
+    const domains = DOMAINS
+
+    if (loading) {
+        return (
+            <Layout active="/opportunities">
+                <Header
+                    eyebrow="OPPORTUNITIES"
+                    title="Opportunities for you"
+                    text="Requirements posted by registered organisations and matched to your profile."
+                />
+
+                <section className="panel">
+                    <p>Loading opportunities...</p>
+                </section>
+            </Layout>
+        )
     }
 
-    const domains = DOMAINS
+    if (error) {
+        return (
+            <Layout active="/opportunities">
+                <Header
+                    eyebrow="OPPORTUNITIES"
+                    title="Opportunities for you"
+                    text="Requirements posted by registered organisations and matched to your profile."
+                />
+
+                <section className="panel">
+                    <p>{error}</p>
+                </section>
+            </Layout>
+        )
+    }
 
     return (
         <Layout active="/opportunities">
-            <Header eyebrow="OPPORTUNITIES" title="Opportunities for you" text="Requirements posted by registered organisations and matched to your profile." />
+
+            <Header
+                eyebrow="OPPORTUNITIES"
+                title="Opportunities for you"
+                text="Requirements posted by registered organisations and matched to your profile."
+            />
 
             <div className="toolbar">
-                <div className="search">🔎<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search opportunities" /></div>
-                <select value={domain} onChange={(e) => setDomain(e.target.value)}><option value="all">All domains</option>{domains.map((d) => <option key={d} value={d}>{d}</option>)}</select>
-                <select value={sort} onChange={(e) => setSort(e.target.value)}><option value="match">Best match</option><option value="latest">Latest</option></select>
+
+                <div className="search">
+                    🔎
+                    <input
+                        value={query}
+                        onChange={(e) =>
+                            setQuery(e.target.value)
+                        }
+                        placeholder="Search opportunities"
+                    />
+                </div>
+
+                <select
+                    value={domain}
+                    onChange={(e) =>
+                        setDomain(e.target.value)
+                    }
+                >
+                    <option value="all">
+                        All domains
+                    </option>
+
+                    {domains.map((d) => (
+                        <option
+                            key={d}
+                            value={d}
+                        >
+                            {d}
+                        </option>
+                    ))}
+                </select>
+
+                <select
+                    value={sort}
+                    onChange={(e) =>
+                        setSort(e.target.value)
+                    }
+                >
+                    <option value="match">
+                        Best match
+                    </option>
+
+                    <option value="latest">
+                        Latest
+                    </option>
+                </select>
+
             </div>
 
             {scored.length === 0 ? (
-                <section className="panel"><EmptyState title="No opportunities found" text="There are no NGO requirements matching the current filters." /></section>
+
+                <section className="panel">
+                    <EmptyState
+                        title="No opportunities found"
+                        text="There are no NGO requirements matching the current filters."
+                    />
+                </section>
+
             ) : (
+
                 <div className="grid4">
+
                     {scored.map((r) => {
-                        const interested = interests.some((i) => i.requirementId === r.id && i.volunteerId === user.id)
+
+                        const interested =
+                            interests.some(
+                                (i) =>
+                                    String(
+                                        i.requirementId
+                                    ) ===
+                                    String(r.id) &&
+                                    String(
+                                        i.volunteerId
+                                    ) ===
+                                    String(user?.id)
+                            )
+
                         return (
-                            <article className="card" key={r.id}>
-                                <span className="badge badge-green">{r.score}% match</span>
-                                <h3 style={{ marginTop: 12 }}>{r.title}</h3>
-                                <p>{r.ngoName}</p>
-                                <p style={{ fontSize: 12, marginTop: 8 }}>
-                                    📍 {formatLocation(r)}<br />
-                                    📅 {r.date}<br />
-                                    ⏰ {r.time}<br />
-                                    👥 {r.volunteersNeeded} volunteer{Number(r.volunteersNeeded) === 1 ? '' : 's'} needed
+
+                            <article
+                                className="card"
+                                key={r.id}
+                            >
+
+                                <span className="badge badge-green">
+                                    {r.score}% match
+                                </span>
+
+                                <h3
+                                    style={{
+                                        marginTop: 12,
+                                    }}
+                                >
+                                    {r.title}
+                                </h3>
+
+                                <p>
+                                    {r.ngoName}
                                 </p>
-                                <div className="tags">{(r.skills || []).map((s) => <span className="tag" key={s}>{s}</span>)}</div>
-                                <p>{r.description}</p>
-                                <button className="btn btn-primary btn-block" disabled={interested} onClick={() => respond(r)}>
-                                    {interested ? 'Interested ✓' : 'I’m Interested'}
+
+                                <p
+                                    style={{
+                                        fontSize: 12,
+                                        marginTop: 8,
+                                    }}
+                                >
+                                    📍 {formatLocation(r)}
+                                    <br />
+
+                                    📅 {r.date}
+                                    <br />
+
+                                    ⏰ {r.time}
+                                    <br />
+
+                                    👥 {r.volunteersNeeded}{' '}
+                                    volunteer
+                                    {Number(
+                                        r.volunteersNeeded
+                                    ) === 1
+                                        ? ''
+                                        : 's'}{' '}
+                                    needed
+                                </p>
+
+                                <div className="tags">
+
+                                    {(r.skills || []).map(
+                                        (s) => (
+                                            <span
+                                                className="tag"
+                                                key={s}
+                                            >
+                                                {s}
+                                            </span>
+                                        )
+                                    )}
+
+                                </div>
+
+                                <p>
+                                    {r.description}
+                                </p>
+
+                                <button
+                                    className="btn btn-primary btn-block"
+                                    disabled={interested}
+                                    onClick={() =>
+                                        respond(r)
+                                    }
+                                >
+                                    {interested
+                                        ? 'Interested ✓'
+                                        : "I'm Interested"}
                                 </button>
+
                             </article>
+
                         )
                     })}
+
                 </div>
+
             )}
+
         </Layout>
     )
 }
@@ -1493,11 +2310,71 @@ function History() {
 
 function NgoDashboard() {
     const user = getCurrentUser()
-    const requirements = getRequirements().filter((r) => r.ngoId === user?.id)
+    const [applications, setApplications] = useState([])
+    const [volunteers, setVolunteers] = useState([])
+    const [requirements, setRequirements] = useState([])
+    useEffect(() => {
+        fetch('http://localhost:8080/api/applications', {
+            credentials: 'include',
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch applications')
+                }
+                return response.json()
+            })
+            .then((data) => {
+                setApplications(data)
+            })
+            .catch((error) => {
+                console.error('Applications error:', error)
+            })
+    }, [])
+    useEffect(() => {
+        fetch('http://localhost:8080/api/volunteers')
+            .then((response) => response.json())
+            .then((data) => setVolunteers(data))
+            .catch((error) => console.error('Volunteers error:', error))
+    }, [])
+
+    useEffect(() => {
+        fetch('http://localhost:8080/api/requirements')
+            .then((response) => response.json())
+            .then((data) => setRequirements(data))
+            .catch((error) => console.error('Requirements error:', error))
+    }, [])
+    const localRequirements = getRequirements().filter((r) => r.ngoId === user?.id)
     const interests = getInterests().filter((i) => i.ngoId === user?.id)
     const assignments = getAssignments().filter((a) => a.ngoId === user?.id)
     const completed = getHistory().filter((h) => h.ngoId === user?.id)
+    const updateApplicationStatus = async (applicationId, status) => {
+        try {
+            const response = await fetch(
+                `http://localhost:8080/api/applications/${applicationId}/status?status=${status}`,
+                {
+                    method: 'PUT',
+                    credentials: 'include',
+                }
+            )
 
+            if (!response.ok) {
+                throw new Error('Failed to update application status')
+            }
+
+            const updatedApplication = await response.json()
+
+            setApplications((current) =>
+                current.map((application) =>
+                    application.id === updatedApplication.id
+                        ? updatedApplication
+                        : application
+                )
+            )
+        } catch (error) {
+            console.error('Status update error:', error)
+            alert('Unable to update application status.')
+        }
+    }
     return (
         <Layout ngo active="/ngo-dashboard">
             <Header
@@ -1509,8 +2386,10 @@ function NgoDashboard() {
 
             <div className="metric-grid">
                 <div className="metric"><span>Active requirements</span><b>{requirements.filter((r) => r.status !== 'closed').length}</b></div>
-                <div className="metric"><span>Interested volunteers</span><b>{interests.length}</b></div>
-                <div className="metric"><span>Assignments</span><b>{assignments.length}</b></div>
+                <div className="metric">
+                    <span>Applications</span>
+                    <b>{applications.length}</b>
+                </div>                <div className="metric"><span>Assignments</span><b>{assignments.length}</b></div>
                 <div className="metric"><span>Completed</span><b>{completed.length}</b></div>
             </div>
 
@@ -1525,8 +2404,64 @@ function NgoDashboard() {
                 </section>
 
                 <section className="panel">
-                    <div className="panel-head"><div><h2>Volunteer responses</h2><p>People who expressed interest in your requirements.</p></div><Link to="/ngo-interested">Review</Link></div>
-                    {interests.length === 0 ? <EmptyState title="No responses yet" text="Volunteer responses will appear here when they express interest." /> : <div className="list"><div className="item"><div><b>{interests.length} response{interests.length === 1 ? '' : 's'}</b><small>Open Interested Volunteers to review profiles.</small></div><Link to="/ngo-interested" className="action">Review</Link></div></div>}
+                    <div className="panel-head">
+                        <div>
+                            <h2>Volunteer applications</h2>
+                            <p>Review applications from volunteers.</p>
+                        </div>
+                        <Link to="/ngo-interested">View all</Link>
+                    </div>
+
+                    {applications.length === 0 ? (
+                        <EmptyState
+                            title="No applications yet"
+                            text="Volunteer applications will appear here."
+                        />
+                    ) : (
+                        <div className="list">
+                            {applications.slice(0, 5).map((application) => (
+                                <div className="item" key={application.id}>
+                                    <div>
+                                        <b>
+                                            {volunteers.find(
+                                                (v) => String(v.id) === String(application.volunteerId)
+                                            )?.user?.name || `Volunteer #${application.volunteerId}`}
+                                        </b>
+
+                                        <small>
+                                            {requirements.find(
+                                                (r) => String(r.id) === String(application.requirementId)
+                                            )?.title || `Requirement #${application.requirementId}`}
+                                        </small>
+                                    </div>
+
+                                    <div className="right">
+    <span className="badge badge-blue">
+        {application.status}
+    </span>
+
+                                        {application.status === 'PENDING' && (
+                                            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                                                <button
+                                                    className="btn btn-primary"
+                                                    onClick={() => updateApplicationStatus(application.id, 'ACCEPTED')}
+                                                >
+                                                    Accept
+                                                </button>
+
+                                                <button
+                                                    className="btn"
+                                                    onClick={() => updateApplicationStatus(application.id, 'REJECTED')}
+                                                >
+                                                    Reject
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </section>
             </div>
         </Layout>
@@ -1636,37 +2571,6 @@ function Requirements() {
         </Layout>
     )
 }
-
-function MyRequirements() {
-    const user = getCurrentUser()
-    const [requirements, setRequirements] = useState(getRequirements().filter((r) => r.ngoId === user?.id))
-
-    const closeRequirement = (id) => {
-        const all = getRequirements().map((r) => r.id === id ? { ...r, status: 'closed' } : r)
-        writeStorage(STORAGE.requirements, all)
-        setRequirements(all.filter((r) => r.ngoId === user.id))
-    }
-
-    return (
-        <Layout ngo active="/ngo-requirements">
-            <Header eyebrow="MY REQUIREMENTS" title="Requirements" text="Manage requirements posted by your organisation." button={<Link to="/requirements" className="btn btn-primary">+ Post requirement</Link>} />
-            <section className="panel">
-                {requirements.length === 0 ? <EmptyState title="No requirements yet" text="Post a requirement to start receiving volunteer responses." /> : (
-                    <table className="table">
-                        <thead><tr><th>Requirement</th><th>Needed</th><th>Responses</th><th>Status</th><th></th></tr></thead>
-                        <tbody>
-                        {requirements.map((r) => {
-                            const count = getInterests().filter((i) => i.requirementId === r.id).length
-                            return <tr key={r.id}><td><b>{r.title}</b><small>{formatLocation(r)} • {r.date}</small></td><td>{r.volunteersNeeded}</td><td>{count}</td><td><span className="badge badge-blue">{r.status}</span></td><td>{r.status !== 'closed' && <button className="action" onClick={() => closeRequirement(r.id)}>Close</button>}</td></tr>
-                        })}
-                        </tbody>
-                    </table>
-                )}
-            </section>
-        </Layout>
-    )
-}
-
 function MyRequirements() {
     const user = getCurrentUser()
 

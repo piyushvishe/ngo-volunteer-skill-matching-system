@@ -3,9 +3,11 @@ package com.ngovolunteer.matching.service;
 import com.ngovolunteer.matching.entity.Application;
 import com.ngovolunteer.matching.entity.Requirement;
 import com.ngovolunteer.matching.entity.Volunteer;
+import com.ngovolunteer.matching.entity.Assignment;
 import com.ngovolunteer.matching.repository.ApplicationRepository;
 import com.ngovolunteer.matching.repository.RequirementRepository;
 import com.ngovolunteer.matching.repository.VolunteerRepository;
+import com.ngovolunteer.matching.repository.AssignmentRepository;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -14,17 +16,20 @@ public class ApplicationService {
     private final ApplicationRepository applicationRepository;
     private final VolunteerRepository volunteerRepository;
     private final RequirementRepository requirementRepository;
+    private final AssignmentRepository assignmentRepository;
     private final ActivityLogService activityLogService;
 
     public ApplicationService(
             ApplicationRepository applicationRepository,
             VolunteerRepository volunteerRepository,
             RequirementRepository requirementRepository,
+            AssignmentRepository assignmentRepository,
             ActivityLogService activityLogService) {
 
         this.applicationRepository = applicationRepository;
         this.volunteerRepository = volunteerRepository;
         this.requirementRepository = requirementRepository;
+        this.assignmentRepository = assignmentRepository;
         this.activityLogService = activityLogService;
     }
 
@@ -87,6 +92,17 @@ public class ApplicationService {
 
         Application updatedApplication =
                 applicationRepository.save(application);
+
+        if ("ACCEPTED".equalsIgnoreCase(status)) {
+
+            Assignment assignment = new Assignment();
+
+            assignment.setRequirement(application.getRequirement());
+            assignment.setVolunteer(application.getVolunteer());
+            assignment.setStatus("ASSIGNED");
+            assignment.setAssignedAt(java.time.LocalDateTime.now().toString());
+            assignmentRepository.save(assignment);
+        }
 
         Long userId = application.getVolunteer()
                 .getUser()
