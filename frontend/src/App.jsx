@@ -420,12 +420,25 @@ function Login() {
 
             // Store the backend user locally so the
             // existing frontend can continue using getCurrentUser()
+
+            const savedUsers = getUsers()
+
+            const existingUser = savedUsers.find(
+                (u) =>
+                    String(u.id) === String(backendUser.id) ||
+                    u.email?.toLowerCase() === backendUser.email?.toLowerCase()
+            ) || {}
+
             const user = {
+                ...existingUser,
                 id: backendUser.id,
                 name: backendUser.name,
                 email: backendUser.email,
                 role: frontendRole,
             }
+
+            writeStorage(STORAGE.currentUser, user)
+
 
             writeStorage(
                 STORAGE.currentUser,
@@ -573,8 +586,10 @@ function Login() {
     )
 }
 
+
 function Register() {
     const [role, setRole] = useState('volunteer')
+    const [loading, setLoading] = useState(false)
     const [form, setForm] = useState({
         name: '',
         email: '',
@@ -591,54 +606,102 @@ function Register() {
     })
     const [error, setError] = useState('')
 
-    const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+    const update = (key, value) =>
+        setForm((prev) => ({ ...prev, [key]: value }))
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault()
         setError('')
+        setLoading(true)
 
-        const users = getUsers()
-        const email = form.email.trim().toLowerCase()
+        try {
+            const email = form.email.trim().toLowerCase()
 
-        if (users.some((u) => u.email.toLowerCase() === email)) {
-            setError('An account with this email already exists. Please login.')
-            return
-        }
+            const response = await fetch(
+                'http://localhost:8080/api/auth/register',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        name: form.name.trim(),
+                        email,
+                        phone: form.phone.trim(),
+                        password: form.password,
+                        role: role === 'ngo' ? 'NGO' : 'VOLUNTEER',
+                    }),
+                }
+            )
 
-        const user = {
-            id: makeId('user'),
-            role,
-            name: form.name.trim(),
-            email,
-            phone: form.phone.trim(),
-            password: form.password,
-            city: form.city.trim(),
-            area: form.area.trim(),
-            street: form.street.trim(),
-            location: [form.city.trim(), form.area.trim(), form.street.trim()].filter(Boolean).join(', '),
-            availability: form.availability,
-            skills:
-                role === 'volunteer'
-                    ? form.skills.split(',').map((s) => s.trim()).filter(Boolean)
+            if (!response.ok) {
+                const message = await response.text()
+                setError(message || 'Registration failed.')
+                return
+            }
+
+            const backendUser = await response.json()
+
+            // Keep frontend-compatible user information
+            const user = {
+                id: backendUser.id,
+                name: backendUser.name,
+                email: backendUser.email,
+                role: String(backendUser.role).toLowerCase(),
+                phone: form.phone.trim(),
+                city: form.city.trim(),
+                area: form.area.trim(),
+                street: form.street.trim(),
+                location: [
+                    form.city.trim(),
+                    form.area.trim(),
+                    form.street.trim(),
+                ].filter(Boolean).join(', '),
+                availability: form.availability,
+                skills: role === 'volunteer'
+                    ? form.skills.split(',').map(s => s.trim()).filter(Boolean)
                     : [],
-            organisation: role === 'ngo' ? form.organisation.trim() : '',
-            domain: role === 'ngo' ? (form.domains[0] || '') : form.domain.trim(),
-            domains: role === 'ngo' ? form.domains : [form.domain].filter(Boolean),
-            createdAt: new Date().toISOString(),
-        }
+                organisation: role === 'ngo'
+                    ? form.organisation.trim()
+                    : '',
+                domain: role === 'ngo'
+                    ? (form.domains[0] || '')
+                    : form.domain.trim(),
+                domains: role === 'ngo'
+                    ? form.domains
+                    : [form.domain].filter(Boolean),
+            }
 
-        users.push(user)
-        writeStorage(STORAGE.users, users)
-        alert('Account created successfully. Please login.')
-        go('/login')
+            // Keep local user data for existing frontend components
+            const users = getUsers()
+            const filteredUsers = users.filter(
+                u => u.email?.toLowerCase() !== email
+            )
+            writeStorage(STORAGE.users, [...filteredUsers, user])
+
+            alert('Account created successfully. Please login.')
+            go('/login')
+        } catch (err) {
+            console.error('Registration error:', err)
+            setError('Unable to connect to the backend.')
+        } finally {
+            setLoading(false)
+        }
     }
 
     return (
         <AuthShell wide>
-            <form className="form" style={{ borderRadius: 20, background: '#fff' }} onSubmit={submit}>
+            <form
+                className="form"
+                style={{ borderRadius: 20, background: '#fff' }}
+                onSubmit={submit}
+            >
                 <span className="eyebrow">CREATE ACCOUNT</span>
                 <h1>Join VolunteerLink</h1>
-                <p className="muted">Create an account based on how you will use the platform.</p>
+                <p className="muted">
+                    Create an account based on how you will use the platform.
+                </p>
 
                 <div className="role-picker">
                     <button
@@ -662,44 +725,64 @@ function Register() {
                 <div className="two">
                     <label>
                         Full name
-                        <input required value={form.name} onChange={(e) => update('name', e.target.value)} />
+                        <input required value={form.name}
+                               onChange={e => update('name', e.target.value)} />
                     </label>
                     <label>
                         Email
-                        <input type="email" required value={form.email} onChange={(e) => update('email', e.target.value)} />
+                        <input type="email" required value={form.email}
+                               onChange={e => update('email', e.target.value)} />
                     </label>
                 </div>
 
                 <label>
                     Phone
-                    <input required value={form.phone} onChange={(e) => update('phone', e.target.value)} />
+                    <input required value={form.phone}
+                           onChange={e => update('phone', e.target.value)} />
                 </label>
 
                 <label>
                     Password
-                    <input type="password" required minLength="4" value={form.password} onChange={(e) => update('password', e.target.value)} />
+                    <input type="password" required minLength={4}
+                           value={form.password}
+                           onChange={e => update('password', e.target.value)} />
                 </label>
 
                 {role === 'volunteer' ? (
                     <>
                         <label>
                             Domain
-                            <select required value={form.domain} onChange={(e) => update('domain', e.target.value)}>
+                            <select required value={form.domain}
+                                    onChange={e => update('domain', e.target.value)}>
                                 <option value="">Select domain</option>
-                                {DOMAINS.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+                                {DOMAINS.map(domain => (
+                                    <option key={domain} value={domain}>{domain}</option>
+                                ))}
                             </select>
                         </label>
 
                         <div className="two">
-                            <label>City<input required value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Mumbai" /></label>
-                            <label>Area<input required value={form.area} onChange={(e) => update('area', e.target.value)} placeholder="Dadar" /></label>
+                            <label>City
+                                <input required value={form.city}
+                                       onChange={e => update('city', e.target.value)}
+                                       placeholder="Mumbai" />
+                            </label>
+                            <label>Area
+                                <input required value={form.area}
+                                       onChange={e => update('area', e.target.value)}
+                                       placeholder="Dadar" />
+                            </label>
                         </div>
 
                         <div className="two">
-                            <label>Street / Road / Locality<input value={form.street} onChange={(e) => update('street', e.target.value)} placeholder="Senapati Bapat Marg" /></label>
-                            <label>
-                                Availability
-                                <select value={form.availability} onChange={(e) => update('availability', e.target.value)}>
+                            <label>Street / Road / Locality
+                                <input value={form.street}
+                                       onChange={e => update('street', e.target.value)}
+                                       placeholder="Senapati Bapat Marg" />
+                            </label>
+                            <label>Availability
+                                <select value={form.availability}
+                                        onChange={e => update('availability', e.target.value)}>
                                     <option>Weekdays</option>
                                     <option>Weekends</option>
                                     <option>Flexible</option>
@@ -709,33 +792,44 @@ function Register() {
 
                         <label>
                             Skills
-                            <input
-                                required
-                                value={form.skills}
-                                onChange={(e) => update('skills', e.target.value)}
-                                placeholder="Teaching, Communication, First Aid"
-                            />
-                            <small className="field-help">Enter multiple skills separated by commas.</small>
+                            <input required value={form.skills}
+                                   onChange={e => update('skills', e.target.value)}
+                                   placeholder="Teaching, Communication, First Aid" />
+                            <small className="field-help">
+                                Enter multiple skills separated by commas.
+                            </small>
                         </label>
                     </>
                 ) : (
                     <>
                         <label>
                             Organisation name
-                            <input required value={form.organisation} onChange={(e) => update('organisation', e.target.value)} />
+                            <input required value={form.organisation}
+                                   onChange={e => update('organisation', e.target.value)} />
                         </label>
                         <label>
                             Focus domains
                             <div className="tags" style={{ marginTop: 10, gap: 8 }}>
-                                {DOMAINS.map((domain) => (
-                                    <label key={domain} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid #dbe3ef', borderRadius: 10, background: form.domains.includes(domain) ? '#eef5ff' : '#fff', cursor: 'pointer' }}>
+                                {DOMAINS.map(domain => (
+                                    <label key={domain}
+                                           style={{
+                                               display: 'flex',
+                                               alignItems: 'center',
+                                               gap: 8,
+                                               padding: '8px 12px',
+                                               border: '1px solid #dbe3ef',
+                                               borderRadius: 10,
+                                               background: form.domains.includes(domain)
+                                                   ? '#eef5ff' : '#fff',
+                                               cursor: 'pointer',
+                                           }}>
                                         <input
                                             type="checkbox"
                                             checked={form.domains.includes(domain)}
-                                            onChange={(e) => {
+                                            onChange={e => {
                                                 const next = e.target.checked
                                                     ? [...form.domains, domain]
-                                                    : form.domains.filter((d) => d !== domain)
+                                                    : form.domains.filter(d => d !== domain)
                                                 update('domains', next)
                                             }}
                                         />
@@ -743,43 +837,51 @@ function Register() {
                                     </label>
                                 ))}
                             </div>
-                            <small className="field-help">Select all domains your organisation works in.</small>
-                            <input type="text" tabIndex="-1" required value={form.domains.length ? form.domains.join(', ') : ''} onChange={() => {}} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', height: 1 }} aria-label="Selected focus domains" />
+                            <small className="field-help">
+                                Select all domains your organisation works in.
+                            </small>
+                            <input
+                                type="text"
+                                required
+                                tabIndex={-1}
+                                value={form.domains.length ? form.domains.join(', ') : ''}
+                                onChange={() => {}}
+                                style={{
+                                    position: 'absolute',
+                                    opacity: 0,
+                                    pointerEvents: 'none',
+                                    height: 1,
+                                }}
+                                aria-label="Selected focus domains"
+                            />
                         </label>
                     </>
                 )}
 
-                <label
-                    className="checkbox-label"
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'flex-start',
-                        gap: 10,
-                        cursor: 'pointer',
-                        marginTop: 8,
-                    }}
-                >
-                    <input
-                        type="checkbox"
-                        required
-                        style={{
-                            width: 18,
-                            height: 18,
-                            margin: 0,
-                            flex: '0 0 auto',
-                        }}
-                    />
+                <label className="checkbox-label"
+                       style={{
+                           display: 'flex',
+                           alignItems: 'center',
+                           justifyContent: 'flex-start',
+                           gap: 10,
+                           cursor: 'pointer',
+                           marginTop: 8,
+                       }}>
+                    <input type="checkbox" required
+                           style={{ width: 18, height: 18, margin: 0, flex: '0 0 auto' }} />
                     <span>I agree to use the VolunteerLink platform.</span>
                 </label>
 
                 {error && <div className="form-error">{error}</div>}
 
-                <button className="btn btn-primary btn-block">Create account →</button>
+                <button className="btn btn-primary btn-block" disabled={loading}>
+                    {loading ? 'Creating account...' : 'Create account →'}
+                </button>
             </form>
         </AuthShell>
     )
 }
+
 
 function Sidebar({ ngo = false, active = '' }) {
     const current = getCurrentUser()
@@ -1113,7 +1215,7 @@ function VolunteerDashboard() {
                     </div>
 
                     {backendAssignments.filter(
-                        (a) => String(a.volunteer?.user?.id) === String(user?.id)
+                        (a) => String(a.volunteerUserId) === String(user?.id)
                     ).length === 0 ? (
                         <EmptyState
                             title="No assignments yet"
@@ -1123,26 +1225,26 @@ function VolunteerDashboard() {
                         <div className="list">
                             {backendAssignments
                                 .filter(
-                                    (a) => String(a.volunteer?.user?.id) === String(user?.id)
+                                    (a) => String(a.volunteerUserId) === String(user?.id)
                                 )
                                 .map((assignment) => (
                                     <div className="item" key={assignment.id}>
                                         <div className="avatar">AS</div>
 
                                         <div>
-                                            <b>{assignment.requirement?.title || 'Assignment'}</b>
+                                            <b>{assignment.requirementTitle || 'Assignment'}</b>
                                             <small>
-                                                {assignment.requirement?.ngo?.organisationName || 'NGO'}
+                                                {assignment.ngoName || 'NGO'}
                                                 {' • '}
-                                                {assignment.requirement?.location || 'Location not set'}
+                                                {assignment.location || 'Location not set'}
                                                 {' • '}
-                                                {assignment.requirement?.date || 'Date not set'}
+                                                {assignment.date || 'Date not set'}
                                             </small>
                                         </div>
 
                                         <div className="right">
                                             <b className="green">{assignment.status}</b>
-                                            <small>{assignment.requirement?.time || ''}</small>
+                                            <small>{assignment.time || ''}</small>
                                         </div>
                                     </div>
                                 ))}
@@ -1180,15 +1282,68 @@ function VolunteerProfile() {
         skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
     })
 
+
     useEffect(() => {
-        fetch('http://localhost:8080/api/skills')
-            .then((res) => {
-                if (!res.ok) throw new Error('Failed to load skills')
+        const savedUser = getCurrentUser() || user
+        const locationParts = getLocationParts(savedUser)
+
+        setUser(savedUser)
+
+        setForm((prev) => ({
+            ...prev,
+            name: savedUser?.name || '',
+            email: savedUser?.email || '',
+            phone: savedUser?.phone || '',
+            domain: savedUser?.domain || '',
+            city: savedUser?.city || locationParts.city || '',
+            area: savedUser?.area || locationParts.area || '',
+            street: savedUser?.street || locationParts.street || '',
+            availability: savedUser?.availability || 'Weekdays',
+            skills: Array.isArray(savedUser?.skills)
+                ? savedUser.skills.join(', ')
+                : '',
+        }))
+
+        Promise.all([
+            fetch('http://localhost:8080/api/volunteer-skills').then((res) => {
+                if (!res.ok) throw new Error('Failed to load volunteer skills')
                 return res.json()
+            }),
+            fetch('http://localhost:8080/api/volunteers').then((res) => {
+                if (!res.ok) throw new Error('Failed to load volunteers')
+                return res.json()
+            }),
+        ])
+            .then(([links, volunteers]) => {
+                const volunteer = volunteers.find(
+                    (v) => String(v.userId) === String(savedUser?.id)
+                )
+
+                if (!volunteer) {
+                    console.warn('Volunteer profile not found in backend')
+                    return
+                }
+
+                const mine = links.filter(
+                    (vs) => String(vs.volunteerId) === String(volunteer.id)
+                )
+
+                setBackendVolunteerSkills(mine)
+
+                // Use backend skills when available; otherwise retain registration skills.
+                if (mine.length > 0) {
+                    setForm((prev) => ({
+                        ...prev,
+                        skills: mine
+                            .map((vs) => vs.skillName)
+                            .filter(Boolean)
+                            .join(', '),
+                    }))
+                }
             })
-            .then(setAvailableSkills)
-            .catch((err) => console.error('Skills error:', err))
-    }, [])
+            .catch((err) => console.error('Volunteer profile loading error:', err))
+    }, [user?.id])
+
 
     useEffect(() => {
         Promise.all([
@@ -1197,13 +1352,12 @@ function VolunteerProfile() {
         ])
             .then(([links, volunteers]) => {
                 const volunteer = volunteers.find(
-                    (v) => String(v.user?.id) === String(user?.id)
-                )
+                    (v) => String(v.userId) === String(user?.id)               )
 
                 if (!volunteer) return
 
                 const mine = links.filter(
-                    (vs) => String(vs.volunteer?.id) === String(volunteer.id)
+                    (vs) => String(vs.volunteerId) === String(volunteer.id)
                 )
 
                 setBackendVolunteerSkills(mine)
@@ -1211,7 +1365,7 @@ function VolunteerProfile() {
                 setForm((prev) => ({
                     ...prev,
                     skills: mine
-                        .map((vs) => vs.skill?.name)
+                        .map((vs) => vs.skillName)
                         .filter(Boolean)
                         .join(', '),
                 }))
@@ -1222,20 +1376,33 @@ function VolunteerProfile() {
     const initials = (user?.name || 'Volunteer')
         .split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()
 
+
     const startEditing = () => {
+        const savedUser = getCurrentUser() || user
+        const locationParts = getLocationParts(savedUser)
+
         setForm({
-            name: user?.name || '',
-            email: user?.email || '',
-            phone: user?.phone || '',
-            domain: user?.domain || '',
-            city: user?.city || getLocationParts(user).city,
-            area: user?.area || getLocationParts(user).area,
-            street: user?.street || getLocationParts(user).street,
-            availability: user?.availability || 'Weekdays',
-            skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
+            name: savedUser?.name || '',
+            email: savedUser?.email || '',
+            phone: savedUser?.phone || '',
+            domain: savedUser?.domain || '',
+            city: savedUser?.city || locationParts.city || '',
+            area: savedUser?.area || locationParts.area || '',
+            street: savedUser?.street || locationParts.street || '',
+            availability: savedUser?.availability || 'Weekdays',
+            skills: backendVolunteerSkills.length > 0
+                ? backendVolunteerSkills
+                    .map((vs) => vs.skillName)
+                    .filter(Boolean)
+                    .join(', ')
+                : Array.isArray(savedUser?.skills)
+                    ? savedUser.skills.join(', ')
+                    : '',
         })
+
         setEditing(true)
     }
+
 
     const saveProfile = async () => {
         try {
@@ -1259,9 +1426,7 @@ function VolunteerProfile() {
 
             const volunteers = await volunteersResponse.json()
             const volunteer = volunteers.find(
-                (v) => String(v.user?.id) === String(user?.id)
-            )
-
+                (v) => String(v.userId) === String(user?.id) )
             if (!volunteer) {
                 alert('Volunteer profile not found in the database.')
                 return
@@ -1294,8 +1459,7 @@ function VolunteerProfile() {
 
             const desiredIds = new Set(desiredSkills.map((s) => String(s.id)))
             const existingIds = new Set(
-                backendVolunteerSkills.map((vs) => String(vs.skill?.id))
-            )
+                backendVolunteerSkills.map((vs) => String(vs.skillId))            )
 
             // Add new volunteer-skill links.
             for (const skill of desiredSkills) {
@@ -1315,8 +1479,7 @@ function VolunteerProfile() {
 
             // Remove links for skills that were deleted from the profile.
             for (const link of backendVolunteerSkills) {
-                if (!desiredIds.has(String(link.skill?.id))) {
-                    const response = await fetch(
+                if (!desiredIds.has(String(link.skillId))) {                    const response = await fetch(
                         `http://localhost:8080/api/volunteer-skills/${link.id}`,
                         { method: 'DELETE' }
                     )
@@ -1335,8 +1498,9 @@ function VolunteerProfile() {
             setBackendVolunteerSkills(
                 desiredSkills.map((skill) => ({
                     id: `skill-${skill.id}`,
-                    volunteer: { id: volunteer.id },
-                    skill,
+                    volunteerId: volunteer.id,
+                    skillId: skill.id,
+                    skillName: skill.name,
                 }))
             )
             setEditing(false)
@@ -1357,7 +1521,10 @@ function VolunteerProfile() {
             area: user?.area || getLocationParts(user).area,
             street: user?.street || getLocationParts(user).street,
             availability: user?.availability || 'Weekdays',
-            skills: Array.isArray(user?.skills) ? user.skills.join(', ') : '',
+            skills: backendVolunteerSkills
+                .map((vs) => vs.skillName)
+                .filter(Boolean)
+                .join(', '),
         })
         setEditing(false)
     }
@@ -1444,6 +1611,7 @@ function Opportunities() {
     const [sort, setSort] = useState('match')
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    const [backendMatches, setBackendMatches] = useState({})
 
     const interests = getInterests()
     const assignments = getAssignments()
@@ -1585,6 +1753,44 @@ function Opportunities() {
 
                 setRequirements(mappedRequirements)
 
+                if (user?.id) {
+                    const volunteerResponse = await fetch(
+                        'http://localhost:8080/api/volunteers',
+                        { credentials: 'include' }
+                    )
+
+                    if (volunteerResponse.ok) {
+                        const volunteers = await volunteerResponse.json()
+
+                        const volunteer = volunteers.find(
+                            (v) => String(v.userId) === String(user.id)
+                        )
+
+                        if (volunteer) {
+                            const matchResults = await Promise.all(
+                                mappedRequirements.map(async (r) => {
+                                    const response = await fetch(
+                                        `http://localhost:8080/api/matching/${volunteer.id}/${r.id}`,
+                                        { credentials: 'include' }
+                                    )
+
+                                    if (!response.ok) return null
+
+                                    return await response.json()
+                                })
+                            )
+
+                            const matches = {}
+
+                            matchResults.filter(Boolean).forEach((match) => {
+                                matches[match.requirementId] = match
+                            })
+
+                            setBackendMatches(matches)
+                        }
+                    }
+                }
+
             } catch (error) {
                 console.error(
                     'Load requirements error:',
@@ -1643,7 +1849,8 @@ function Opportunities() {
 
         .map((r) => ({
             ...r,
-            score: calculateMatch(r, user),
+            score: backendMatches[r.id]?.matchingPercentage ?? 0,
+            matchedSkills: backendMatches[r.id]?.matchedSkills ?? [],
         }))
 
         .filter((r) => {
@@ -1881,6 +2088,12 @@ function Opportunities() {
                                 <span className="badge badge-green">
                                     {r.score}% match
                                 </span>
+
+                                {r.matchedSkills.length > 0 && (
+                                    <p>
+                                        Matched skills: {r.matchedSkills.join(', ')}
+                                    </p>
+                                )}
 
                                 <h3
                                     style={{
@@ -2343,10 +2556,51 @@ function NgoDashboard() {
             .then((data) => setRequirements(data))
             .catch((error) => console.error('Requirements error:', error))
     }, [])
-    const localRequirements = getRequirements().filter((r) => r.ngoId === user?.id)
-    const interests = getInterests().filter((i) => i.ngoId === user?.id)
-    const assignments = getAssignments().filter((a) => a.ngoId === user?.id)
-    const completed = getHistory().filter((h) => h.ngoId === user?.id)
+
+    const myRequirements = requirements.filter(
+        (r) => String(r.ngo?.user?.id) === String(user?.id)
+    )
+
+    console.log(
+        'Requirement owner details:',
+        JSON.stringify(
+            requirements.map((r) => ({
+                id: r.id,
+                title: r.title,
+                ngoId: r.ngo?.id,
+                ngoUserId: r.ngo?.user?.id,
+                ngoEmail: r.ngo?.user?.email,
+                organisationName: r.ngo?.organisationName,
+            })),
+            null,
+            2
+        )
+    )
+
+    const myRequirementIds = new Set(
+        myRequirements.map((r) => String(r.id))
+    )
+
+    const myApplications = applications.filter(
+        (a) => myRequirementIds.has(String(a.requirementId))
+    )
+
+    const localRequirements = getRequirements().filter(
+        (r) => String(r.ngoId) === String(user?.id)
+    )
+
+    const interests = getInterests().filter(
+        (i) => String(i.ngoId) === String(user?.id)
+    )
+
+    const assignments = getAssignments().filter(
+        (a) => String(a.ngoId) === String(user?.id)
+    )
+
+    const completed = getHistory().filter(
+        (h) => String(h.ngoId) === String(user?.id)
+    )
+
     const updateApplicationStatus = async (applicationId, status) => {
         try {
             const response = await fetch(
@@ -2385,11 +2639,19 @@ function NgoDashboard() {
             />
 
             <div className="metric-grid">
-                <div className="metric"><span>Active requirements</span><b>{requirements.filter((r) => r.status !== 'closed').length}</b></div>
+
+                <div className="metric">
+                    <span>Active requirements</span>
+                    <b>{myRequirements.filter(
+                        (r) => String(r.status).toUpperCase() !== 'CLOSED'
+                    ).length}</b>
+                </div>
+
                 <div className="metric">
                     <span>Applications</span>
-                    <b>{applications.length}</b>
-                </div>                <div className="metric"><span>Assignments</span><b>{assignments.length}</b></div>
+                    <b>{myApplications.length}</b>
+                </div>
+                <div className="metric"><span>Assignments</span><b>{assignments.length}</b></div>
                 <div className="metric"><span>Completed</span><b>{completed.length}</b></div>
             </div>
 
@@ -2398,7 +2660,7 @@ function NgoDashboard() {
                     <div className="panel-head"><div><h2>My requirements</h2><p>Requirements created by your organisation.</p></div><Link to="/ngo-requirements">View all</Link></div>
                     {requirements.length === 0 ? <EmptyState title="No requirements posted" text="Create your first volunteer requirement." /> : (
                         <div className="list">
-                            {requirements.slice(0, 5).map((r) => <div className="item" key={r.id}><div><b>{r.title}</b><small>{formatLocation(r)} • {r.date} • {r.volunteersNeeded} needed</small></div><span className="badge badge-blue">{r.status}</span></div>)}
+                            {myRequirements.slice(0, 5).map((r) => <div className="item" key={r.id}><div><b>{r.title}</b><small>{formatLocation(r)} • {r.date} • {r.volunteersNeeded} needed</small></div><span className="badge badge-blue">{r.status}</span></div>)}
                         </div>
                     )}
                 </section>
@@ -2412,14 +2674,14 @@ function NgoDashboard() {
                         <Link to="/ngo-interested">View all</Link>
                     </div>
 
-                    {applications.length === 0 ? (
+                    {myApplications.length === 0 ? (
                         <EmptyState
                             title="No applications yet"
                             text="Volunteer applications will appear here."
                         />
                     ) : (
                         <div className="list">
-                            {applications.slice(0, 5).map((application) => (
+                            {myApplications.slice(0, 5).map((application) => (
                                 <div className="item" key={application.id}>
                                     <div>
                                         <b>
@@ -2478,8 +2740,10 @@ function formatTimeInput(value) {
     return `${hour}:${minute} ${period}`
 }
 
+
 function Requirements() {
     const user = getCurrentUser()
+
     const [form, setForm] = useState({
         title: '',
         volunteersNeeded: 1,
@@ -2493,15 +2757,19 @@ function Requirements() {
         skills: '',
         description: '',
     })
+
     const [message, setMessage] = useState('')
+    const [saving, setSaving] = useState(false)
 
-    const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+    const update = (key, value) =>
+        setForm((prev) => ({ ...prev, [key]: value }))
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault()
+        setMessage('')
 
         if (!form.startTime || !form.endTime) {
-            setMessage('Please select both start time and end time.')
+            setMessage('Please select both start and end times.')
             return
         }
 
@@ -2510,67 +2778,270 @@ function Requirements() {
             return
         }
 
-        const formattedTime = `${formatTimeInput(form.startTime)} - ${formatTimeInput(form.endTime)}`
+        setSaving(true)
 
-        const requirement = {
-            id: makeId('requirement'),
-            ngoId: user.id,
-            ngoName: user.organisation || user.name,
-            title: form.title.trim(),
-            volunteersNeeded: Number(form.volunteersNeeded),
-            domain: form.domain,
-            city: form.city.trim(),
-            area: form.area.trim(),
-            street: form.street.trim(),
-            location: [form.city.trim(), form.area.trim(), form.street.trim()].filter(Boolean).join(', '),
-            date: form.date,
-            time: formattedTime,
-            skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
-            description: form.description.trim(),
-            status: 'active',
-            createdAt: new Date().toISOString(),
+        try {
+            const location = [
+                form.city.trim(),
+                form.area.trim(),
+                form.street.trim(),
+            ].filter(Boolean).join(', ')
+
+            const time =
+                `${formatTimeInput(form.startTime)} - ${formatTimeInput(form.endTime)}`
+
+            // 1. Save the requirement in MySQL
+            const requirementResponse = await fetch(
+                'http://localhost:8080/api/requirements',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        title: form.title.trim(),
+                        volunteersNeeded: Number(form.volunteersNeeded),
+                        domain: form.domain,
+                        location,
+                        date: form.date,
+                        time,
+                        taskDescription: form.description.trim(),
+                        status: 'OPEN',
+                    }),
+                }
+            )
+
+            if (!requirementResponse.ok) {
+                throw new Error(
+                    await requirementResponse.text() ||
+                    'Failed to save requirement.'
+                )
+            }
+
+            const savedRequirement =
+                await requirementResponse.json()
+
+            // 2. Load skills already stored in MySQL
+            const skillsResponse = await fetch(
+                'http://localhost:8080/api/skills',
+                { credentials: 'include' }
+            )
+
+            if (!skillsResponse.ok) {
+                throw new Error('Requirement saved, but skills could not be loaded.')
+            }
+
+            const availableSkills = await skillsResponse.json()
+
+            // 3. Save each required skill and link it to the requirement
+            const skillNames = [
+                ...new Set(
+                    form.skills.split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                ),
+            ]
+
+            for (const skillName of skillNames) {
+                let skill = availableSkills.find(
+                    (s) =>
+                        s.name?.trim().toLowerCase() ===
+                        skillName.toLowerCase()
+                )
+
+                if (!skill) {
+                    const createSkillResponse = await fetch(
+                        'http://localhost:8080/api/skills',
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            credentials: 'include',
+                            body: JSON.stringify({
+                                name: skillName,
+                            }),
+                        }
+                    )
+
+                    if (!createSkillResponse.ok) {
+                        throw new Error(
+                            `Requirement saved, but could not create skill: ${skillName}`
+                        )
+                    }
+
+                    skill = await createSkillResponse.json()
+                    availableSkills.push(skill)
+                }
+
+                const linkResponse = await fetch(
+                    'http://localhost:8080/api/requirement-skills',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify({
+                            requirement: {
+                                id: savedRequirement.id,
+                            },
+                            skill: {
+                                id: skill.id,
+                            },
+                        }),
+                    }
+                )
+
+                if (!linkResponse.ok) {
+                    throw new Error(
+                        `Requirement saved, but could not link skill: ${skillName}`
+                    )
+                }
+            }
+
+            setForm({
+                title: '',
+                volunteersNeeded: 1,
+                domain: '',
+                city: '',
+                area: '',
+                street: '',
+                date: '',
+                startTime: '',
+                endTime: '',
+                skills: '',
+                description: '',
+            })
+
+            setMessage('Requirement and required skills saved successfully!')
+
+        } catch (error) {
+            console.error('Requirement save error:', error)
+            setMessage(error.message || 'Unable to connect to backend.')
+        } finally {
+            setSaving(false)
         }
-
-        writeStorage(STORAGE.requirements, [...getRequirements(), requirement])
-        setForm({ title: '', volunteersNeeded: 1, domain: '', city: '', area: '', street: '', date: '', startTime: '', endTime: '', skills: '', description: '' })
-        setMessage('Requirement posted successfully.')
     }
 
     return (
         <Layout ngo active="/requirements">
-            <Header eyebrow="POST REQUIREMENT" title="Create a volunteer requirement" text="Describe the actual task so volunteers can find it and respond." />
-            <form className="panel form" style={{ maxWidth: 850 }} onSubmit={submit}>
+            <Header
+                eyebrow="POST REQUIREMENT"
+                title="Create a volunteer requirement"
+                text="Describe the actual task so volunteers can find it and respond."
+            />
+
+            <form
+                className="panel form"
+                style={{ maxWidth: 850 }}
+                onSubmit={submit}
+            >
                 <div className="two">
-                    <label>Requirement title<input required value={form.title} onChange={(e) => update('title', e.target.value)} /></label>
-                    <label>Volunteers needed<input required type="number" min="1" value={form.volunteersNeeded} onChange={(e) => update('volunteersNeeded', e.target.value)} /></label>
+                    <label>
+                        Requirement title
+                        <input required value={form.title}
+                               onChange={(e) => update('title', e.target.value)} />
+                    </label>
+
+                    <label>
+                        Volunteers needed
+                        <input required type="number" min="1"
+                               value={form.volunteersNeeded}
+                               onChange={(e) => update('volunteersNeeded', e.target.value)} />
+                    </label>
                 </div>
+
                 <div className="two">
-                    <label>Domain<select required value={form.domain} onChange={(e) => update('domain', e.target.value)}>
-                        <option value="">Select domain</option>
-                        {DOMAINS.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
-                    </select></label>
-                    <label>City<input required value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Mumbai" /></label>
+                    <label>
+                        Domain
+                        <select required value={form.domain}
+                                onChange={(e) => update('domain', e.target.value)}>
+                            <option value="">Select domain</option>
+                            {DOMAINS.map((domain) => (
+                                <option key={domain} value={domain}>
+                                    {domain}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label>
+                        City
+                        <input required value={form.city}
+                               onChange={(e) => update('city', e.target.value)}
+                               placeholder="Mumbai" />
+                    </label>
                 </div>
+
                 <div className="two">
-                    <label>Area<input required value={form.area} onChange={(e) => update('area', e.target.value)} placeholder="Dadar" /></label>
-                    <label>Street / Road / Venue<input value={form.street} onChange={(e) => update('street', e.target.value)} placeholder="Senapati Bapat Marg" /></label>
+                    <label>
+                        Area
+                        <input required value={form.area}
+                               onChange={(e) => update('area', e.target.value)}
+                               placeholder="Dadar" />
+                    </label>
+
+                    <label>
+                        Street / Road / Venue
+                        <input value={form.street}
+                               onChange={(e) => update('street', e.target.value)}
+                               placeholder="Senapati Bapat Marg" />
+                    </label>
                 </div>
+
                 <div className="two">
-                    <label>Date<input required type="date" value={form.date} onChange={(e) => update('date', e.target.value)} /></label>
+                    <label>
+                        Date
+                        <input required type="date" value={form.date}
+                               onChange={(e) => update('date', e.target.value)} />
+                    </label>
+
                     <div className="two">
-                        <label>Start time<input required type="time" value={form.startTime} onChange={(e) => update('startTime', e.target.value)} /></label>
-                        <label>End time<input required type="time" value={form.endTime} onChange={(e) => update('endTime', e.target.value)} /></label>
+                        <label>
+                            Start time
+                            <input required type="time" value={form.startTime}
+                                   onChange={(e) => update('startTime', e.target.value)} />
+                        </label>
+
+                        <label>
+                            End time
+                            <input required type="time" value={form.endTime}
+                                   onChange={(e) => update('endTime', e.target.value)} />
+                        </label>
                     </div>
-                    <p className="muted" style={{ marginTop: '-8px' }}>Select the exact start and end time for the activity.</p>
                 </div>
-                <label>Required skills<input required value={form.skills} onChange={(e) => update('skills', e.target.value)} placeholder="Teaching, Communication" /></label>
-                <label>Task description<textarea required rows="5" value={form.description} onChange={(e) => update('description', e.target.value)} /></label>
-                <button className="btn btn-primary">Post requirement →</button>
-                {message && <span className="badge badge-green">{message}</span>}
+
+                <p className="muted">
+                    Select the exact date and activity timings.
+                </p>
+
+                <label>
+                    Required skills
+                    <input required value={form.skills}
+                           onChange={(e) => update('skills', e.target.value)}
+                           placeholder="Teaching, Communication, Java" />
+                </label>
+
+                <label>
+                    Task description
+                    <textarea required rows="5" value={form.description}
+                              onChange={(e) => update('description', e.target.value)} />
+                </label>
+
+                <button
+                    className="btn btn-primary"
+                    type="submit"
+                    disabled={saving}
+                >
+                    {saving ? 'Saving...' : 'Post requirement →'}
+                </button>
+
+                {message && <p>{message}</p>}
             </form>
         </Layout>
     )
 }
+
 function MyRequirements() {
     const user = getCurrentUser()
 
@@ -2662,7 +3133,7 @@ function MyRequirements() {
 
             <section className="panel">
 
-                {requirements.length === 0 ? (
+                {myRequirements.length === 0 ? (
 
                     <EmptyState
                         title="No requirements yet"
