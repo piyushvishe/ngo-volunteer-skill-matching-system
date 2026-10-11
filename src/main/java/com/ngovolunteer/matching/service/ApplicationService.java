@@ -95,13 +95,27 @@ public class ApplicationService {
 
         if ("ACCEPTED".equalsIgnoreCase(status)) {
 
-            Assignment assignment = new Assignment();
+            Long volunteerId = application.getVolunteer().getId();
+            Long requirementId = application.getRequirement().getId();
 
-            assignment.setRequirement(application.getRequirement());
-            assignment.setVolunteer(application.getVolunteer());
-            assignment.setStatus("ASSIGNED");
-            assignment.setAssignedAt(java.time.LocalDateTime.now().toString());
-            assignmentRepository.save(assignment);
+            boolean assignmentExists =
+                    assignmentRepository.existsByVolunteerIdAndRequirementId(
+                            volunteerId,
+                            requirementId
+                    );
+
+            if (!assignmentExists) {
+                Assignment assignment = new Assignment();
+
+                assignment.setRequirement(application.getRequirement());
+                assignment.setVolunteer(application.getVolunteer());
+                assignment.setStatus("ASSIGNED");
+                assignment.setAssignedAt(
+                        java.time.LocalDateTime.now().toString()
+                );
+
+                assignmentRepository.save(assignment);
+            }
         }
 
         Long userId = application.getVolunteer()

@@ -412,6 +412,7 @@ function Login() {
             }
 
             const backendUser = await response.json()
+            console.log("LOGIN RESPONSE:", backendUser)
 
             // Convert backend role to the format
             // currently used by the frontend
@@ -2526,6 +2527,7 @@ function NgoDashboard() {
     const [applications, setApplications] = useState([])
     const [volunteers, setVolunteers] = useState([])
     const [requirements, setRequirements] = useState([])
+    const [assignments, setAssignments] = useState([])
     useEffect(() => {
         fetch('http://localhost:8080/api/applications', {
             credentials: 'include',
@@ -2555,6 +2557,22 @@ function NgoDashboard() {
             .then((response) => response.json())
             .then((data) => setRequirements(data))
             .catch((error) => console.error('Requirements error:', error))
+    }, [])
+
+    useEffect(() => {
+        fetch('http://localhost:8080/api/assignments', {
+            credentials: 'include',
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch assignments')
+                }
+                return response.json()
+            })
+            .then((data) => setAssignments(data))
+            .catch((error) => {
+                console.error('Assignments error:', error)
+            })
     }, [])
 
     const myRequirements = requirements.filter(
@@ -2593,8 +2611,8 @@ function NgoDashboard() {
         (i) => String(i.ngoId) === String(user?.id)
     )
 
-    const assignments = getAssignments().filter(
-        (a) => String(a.ngoId) === String(user?.id)
+    const myAssignments = assignments.filter(
+        (a) => myRequirementIds.has(String(a.requirementId))
     )
 
     const completed = getHistory().filter(
@@ -3377,19 +3395,30 @@ function VolunteerView() {
 
 function NgoAssignments() {
     const user = getCurrentUser()
-    const loadAssignments = () =>
-        getAssignments().filter((a) => a.ngoId === user?.id)
 
-    const [list, setList] = useState(loadAssignments)
+    const [list, setList] = useState([])
+
+    const loadAssignments = async () => {
+        try {
+            const response = await fetch(
+                'http://localhost:8080/api/assignments',
+                { credentials: 'include' }
+            )
+
+            if (!response.ok) {
+                throw new Error('Failed to load assignments')
+            }
+
+            const data = await response.json()
+            setList(data)
+        } catch (error) {
+            console.error('Assignments error:', error)
+        }
+    }
+
 
     useEffect(() => {
-        const refresh = () => setList(loadAssignments())
-        window.addEventListener('volunteerlink-data-change', refresh)
-        window.addEventListener('storage', refresh)
-        return () => {
-            window.removeEventListener('volunteerlink-data-change', refresh)
-            window.removeEventListener('storage', refresh)
-        }
+        loadAssignments()
     }, [])
 
     return (

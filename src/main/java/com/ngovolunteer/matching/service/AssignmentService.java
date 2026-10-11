@@ -22,6 +22,9 @@ public class AssignmentService {
     public List<Assignment> getAllAssignments() {
         return assignmentRepository.findAll();
     }
+    public List<Assignment> getAssignmentsByNgoUserId(Long userId) {
+        return assignmentRepository.findByRequirementNgoUserId(userId);
+    }
 
     public Assignment getAssignmentById(Long id) {
         return assignmentRepository.findById(id).orElse(null);
