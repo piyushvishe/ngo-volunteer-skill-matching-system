@@ -12,4 +12,7 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
             Long requirementId
     );
     List<Assignment> findByRequirementNgoUserId(Long userId);
+    List<Assignment> findByVolunteerUserId(Long userId);
+    java.util.Optional<Assignment> findByIdAndVolunteerUserId(Long id, Long userId);
+    long countByRequirementId(Long requirementId);
 }

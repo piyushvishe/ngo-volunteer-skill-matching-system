@@ -1,12 +1,19 @@
 package com.ngovolunteer.matching.dto;
 
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+
 public class RegisterRequest {
 
-    private String name;
-    private String email;
+    @NotBlank private String name;
+    @NotBlank @Email private String email;
     private String phone;
-    private String password;
+    @NotBlank private String password;
     private String role;
+    private String location;
+    private String availability;
+    private String organisationName;
+    private String domain;
 
     public RegisterRequest() {
     }
@@ -50,4 +57,13 @@ public class RegisterRequest {
     public void setRole(String role) {
         this.role = role;
     }
+
+    public String getLocation() { return location; }
+    public void setLocation(String location) { this.location = location; }
+    public String getAvailability() { return availability; }
+    public void setAvailability(String availability) { this.availability = availability; }
+    public String getOrganisationName() { return organisationName; }
+    public void setOrganisationName(String organisationName) { this.organisationName = organisationName; }
+    public String getDomain() { return domain; }
+    public void setDomain(String domain) { this.domain = domain; }
 }

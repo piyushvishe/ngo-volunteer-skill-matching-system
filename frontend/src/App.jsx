@@ -1,5 +1,48 @@
 import { useEffect, useState } from 'react'
 
+const API_BASE_URL = 'http://localhost:8080'
+let csrfTokenPromise
+
+async function getCsrfToken(refresh = false) {
+    if (refresh) csrfTokenPromise = undefined
+    if (!csrfTokenPromise) {
+        csrfTokenPromise = window.fetch(`${API_BASE_URL}/api/auth/csrf`, { credentials: 'include' })
+            .then(async (response) => {
+                if (!response.ok) throw new Error('Unable to obtain a CSRF token')
+                const token = await response.json()
+                return { value: token.token, headerName: token.headerName }
+            })
+            .catch((error) => {
+                csrfTokenPromise = undefined
+                throw error
+            })
+    }
+    return csrfTokenPromise
+}
+
+async function apiFetch(input, options = {}) {
+    const method = String(options.method || 'GET').toUpperCase()
+    const requestOptions = { ...options, credentials: options.credentials || 'include' }
+    const isStateChanging = !['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method)
+
+    if (isStateChanging) {
+        const csrf = await getCsrfToken()
+        const headers = new Headers(options.headers || {})
+        headers.set(csrf.headerName, csrf.value)
+        requestOptions.headers = headers
+    }
+
+    const response = await window.fetch(input, requestOptions)
+    const requestUrl = new URL(input instanceof Request ? input.url : input, window.location.href)
+    if (requestUrl.origin === API_BASE_URL && requestUrl.pathname === '/api/auth/login' && response.ok) {
+        // Login replaces the anonymous session, so obtain a token tied to the new session.
+        await getCsrfToken(true)
+    } else if (requestUrl.origin === API_BASE_URL && requestUrl.pathname === '/api/auth/logout') {
+        csrfTokenPromise = undefined
+    }
+    return response
+}
+
 /* =========================================================
    FRONTEND DATA LAYER
    ---------------------------------------------------------
@@ -186,41 +229,6 @@ function getVolunteers() {
     return getUsers().filter((user) => user.role === 'volunteer')
 }
 
-function getRequirements() {
-    return readStorage(STORAGE.requirements, [])
-}
-
-function getInterests() {
-    return readStorage(STORAGE.interests, [])
-}
-
-function getAssignments() {
-    return readStorage(STORAGE.assignments, [])
-}
-
-function getHistory() {
-    return readStorage(STORAGE.history, [])
-}
-
-function getRatings() {
-    return readStorage(STORAGE.ratings, [])
-}
-
-function getVolunteerAverageRating(volunteerId) {
-    const ratings = getRatings().filter(
-        (rating) => String(rating.volunteerId) === String(volunteerId)
-    )
-    if (!ratings.length) return null
-    const average = ratings.reduce(
-        (sum, rating) => sum + Number(rating.rating || 0), 0
-    ) / ratings.length
-    return Number(average.toFixed(1))
-}
-
-function makeId(prefix) {
-    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
 function go(path) {
     window.location.hash = path
 }
@@ -385,7 +393,7 @@ function Login() {
         setLoading(true)
 
         try {
-            const response = await fetch(
+            const response = await apiFetch(
                 'http://localhost:8080/api/auth/login',
                 {
                     method: 'POST',
@@ -412,12 +420,28 @@ function Login() {
             }
 
             const backendUser = await response.json()
+            if (String(backendUser.role).toLowerCase() !== role) {
+                setError(`This account is registered as ${String(backendUser.role).toLowerCase()}. Choose that role to sign in.`)
+                await apiFetch('http://localhost:8080/api/auth/logout', { method: 'POST', credentials: 'include' })
+                return
+            }
             console.log("LOGIN RESPONSE:", backendUser)
 
             // Convert backend role to the format
             // currently used by the frontend
             const frontendRole =
                 String(backendUser.role).toLowerCase()
+            let databaseProfile = {}
+            if (frontendRole === 'volunteer') {
+                const [volunteerResponse, skillsResponse] = await Promise.all([
+                    apiFetch('http://localhost:8080/api/volunteers', {credentials:'include'}),
+                    apiFetch('http://localhost:8080/api/volunteer-skills', {credentials:'include'}),
+                ])
+                const rows = volunteerResponse.ok ? await volunteerResponse.json() : []
+                const volunteer = rows.find((v) => String(v.user?.id) === String(backendUser.id))
+                const links = skillsResponse.ok ? await skillsResponse.json() : []
+                databaseProfile = {location:volunteer?.location || '', availability:volunteer?.availability || '', skills:links.map((l) => l.skill?.name).filter(Boolean)}
+            }
 
             // Store the backend user locally so the
             // existing frontend can continue using getCurrentUser()
@@ -436,6 +460,7 @@ function Login() {
                 name: backendUser.name,
                 email: backendUser.email,
                 role: frontendRole,
+                ...databaseProfile,
             }
 
             writeStorage(STORAGE.currentUser, user)
@@ -618,7 +643,7 @@ function Register() {
         try {
             const email = form.email.trim().toLowerCase()
 
-            const response = await fetch(
+            const response = await apiFetch(
                 'http://localhost:8080/api/auth/register',
                 {
                     method: 'POST',
@@ -632,6 +657,10 @@ function Register() {
                         phone: form.phone.trim(),
                         password: form.password,
                         role: role === 'ngo' ? 'NGO' : 'VOLUNTEER',
+                        location: [form.city.trim(), form.area.trim(), form.street.trim()].filter(Boolean).join(', '),
+                        availability: form.availability,
+                        organisationName: form.organisation.trim(),
+                        domain: role === 'ngo' ? (form.domains[0] || '') : form.domain.trim(),
                     }),
                 }
             )
@@ -917,6 +946,7 @@ function Sidebar({ ngo = false, active = '' }) {
         ]
 
     const logout = () => {
+        apiFetch('http://localhost:8080/api/auth/logout', { method: 'POST', credentials: 'include' }).catch((error) => console.error('Logout error:', error))
         localStorage.removeItem(STORAGE.currentUser)
         go('/')
     }
@@ -1015,14 +1045,14 @@ function calculateMatch(requirement, volunteer) {
 
 function VolunteerDashboard() {
     const user = getCurrentUser()
-    const assignments = getAssignments()
 
     const [applications, setApplications] = useState([])
     const [backendRequirements, setBackendRequirements] = useState([])
     const [backendAssignments, setBackendAssignments] = useState([])
+    const [participations, setParticipations] = useState([])
 
     useEffect(() => {
-        fetch('http://localhost:8080/api/applications', {
+        apiFetch('http://localhost:8080/api/applications', {
             credentials: 'include',
         })
             .then((response) => {
@@ -1039,7 +1069,7 @@ function VolunteerDashboard() {
             })
     }, [])
     useEffect(() => {
-        fetch('http://localhost:8080/api/requirements')
+        apiFetch('http://localhost:8080/api/requirements', { credentials: 'include' })
             .then((response) => response.json())
             .then((data) => {
                 setBackendRequirements(data)
@@ -1049,7 +1079,7 @@ function VolunteerDashboard() {
             })
     }, [])
     useEffect(() => {
-        fetch('http://localhost:8080/api/assignments')
+        apiFetch('http://localhost:8080/api/assignments', { credentials: 'include' })
             .then((response) => {
                 if (!response.ok) {
                     throw new Error('Failed to fetch assignments')
@@ -1059,13 +1089,24 @@ function VolunteerDashboard() {
             .then((data) => setBackendAssignments(data))
             .catch((error) => console.error('Assignments error:', error))
     }, [])
+    useEffect(() => {
+        apiFetch('http://localhost:8080/api/participations/mine', { credentials: 'include' })
+            .then((r) => r.ok ? r.json() : [])
+            .then(setParticipations)
+            .catch(() => setParticipations([]))
+    }, [])
 
     // Show only requirements that are still available to this volunteer.
     // Hide requirements that are already full or already assigned to this volunteer.
-    const requirements = getRequirements().filter((r) => {
+    const requirements = backendRequirements.map((r) => ({
+        id: r.id, title: r.title, volunteersNeeded: r.volunteersNeeded || 1,
+        domain: r.domain || '', location: r.location || '', date: r.date || '', time: r.time || '',
+        description: r.taskDescription || '', status: String(r.status || '').toLowerCase(),
+        ngoId: r.ngo?.user?.id ?? r.ngo?.id, ngoName: r.ngo?.organisationName || r.ngo?.user?.name || 'NGO',
+    })).filter((r) => {
         if (r.status === 'closed') return false
 
-        const requirementAssignments = assignments.filter(
+        const requirementAssignments = backendAssignments.filter(
             (a) => String(a.requirementId) === String(r.id)
         )
 
@@ -1106,12 +1147,10 @@ function VolunteerDashboard() {
                 <div className="metric">
                     <span>Assignments</span>
                     <b>
-                        {backendAssignments.filter(
-                            (a) => String(a.volunteer?.id) === String(user?.id)
-                        ).length}
+                        {backendAssignments.length}
                     </b>
                 </div>
-                <div className="metric"><span>Completed</span><b>{getHistory().filter((h) => h.volunteerId === user?.id).length}</b></div>
+                <div className="metric"><span>Completed</span><b>{participations.length}</b></div>
             </div>
 
             <div className="content">
@@ -1269,8 +1308,9 @@ function EmptyState({ title, text }) {
 function VolunteerProfile() {
     const [user, setUser] = useState(getCurrentUser)
     const [editing, setEditing] = useState(false)
-    const [availableSkills, setAvailableSkills] = useState([])
     const [backendVolunteerSkills, setBackendVolunteerSkills] = useState([])
+    const [profileAssignments, setProfileAssignments] = useState([])
+    const [profileParticipation, setProfileParticipation] = useState([])
     const [form, setForm] = useState({
         name: user?.name || '',
         email: user?.email || '',
@@ -1306,36 +1346,39 @@ function VolunteerProfile() {
         }))
 
         Promise.all([
-            fetch('http://localhost:8080/api/volunteer-skills').then((res) => {
+            apiFetch('http://localhost:8080/api/volunteer-skills', { credentials: 'include' }).then((res) => {
                 if (!res.ok) throw new Error('Failed to load volunteer skills')
                 return res.json()
             }),
-            fetch('http://localhost:8080/api/volunteers').then((res) => {
+            apiFetch('http://localhost:8080/api/volunteers', { credentials: 'include' }).then((res) => {
                 if (!res.ok) throw new Error('Failed to load volunteers')
                 return res.json()
             }),
         ])
             .then(([links, volunteers]) => {
                 const volunteer = volunteers.find(
-                    (v) => String(v.userId) === String(savedUser?.id)
+                    (v) => String(v.user?.id) === String(savedUser?.id)
                 )
 
                 if (!volunteer) {
                     console.warn('Volunteer profile not found in backend')
                     return
                 }
+                setUser((current) => current ? {...current, location:volunteer.location || '', availability:volunteer.availability || current.availability} : current)
+                setForm((current) => ({...current, city:getLocationParts({location:volunteer.location || ''}).city, area:getLocationParts({location:volunteer.location || ''}).area, street:getLocationParts({location:volunteer.location || ''}).street, availability:volunteer.availability || current.availability}))
 
                 const mine = links.filter(
-                    (vs) => String(vs.volunteerId) === String(volunteer.id)
+                    (vs) => String(vs.volunteer?.id) === String(volunteer.id)
                 )
 
-                setBackendVolunteerSkills(mine)
+                const normalizedLinks = mine.map((vs) => ({...vs, volunteerId:vs.volunteer?.id, skillId:vs.skill?.id, skillName:vs.skill?.name}))
+                setBackendVolunteerSkills(normalizedLinks)
 
                 // Use backend skills when available; otherwise retain registration skills.
                 if (mine.length > 0) {
                     setForm((prev) => ({
                         ...prev,
-                        skills: mine
+                        skills: normalizedLinks
                             .map((vs) => vs.skillName)
                             .filter(Boolean)
                             .join(', '),
@@ -1348,30 +1391,39 @@ function VolunteerProfile() {
 
     useEffect(() => {
         Promise.all([
-            fetch('http://localhost:8080/api/volunteer-skills').then((res) => res.json()),
-            fetch('http://localhost:8080/api/volunteers').then((res) => res.json()),
+            apiFetch('http://localhost:8080/api/volunteer-skills', { credentials: 'include' }).then((res) => res.json()),
+            apiFetch('http://localhost:8080/api/volunteers', { credentials: 'include' }).then((res) => res.json()),
         ])
             .then(([links, volunteers]) => {
                 const volunteer = volunteers.find(
-                    (v) => String(v.userId) === String(user?.id)               )
+                    (v) => String(v.user?.id) === String(user?.id)               )
 
                 if (!volunteer) return
 
                 const mine = links.filter(
-                    (vs) => String(vs.volunteerId) === String(volunteer.id)
+                    (vs) => String(vs.volunteer?.id) === String(volunteer.id)
                 )
 
-                setBackendVolunteerSkills(mine)
+                const normalizedLinks = mine.map((vs) => ({...vs, volunteerId:vs.volunteer?.id, skillId:vs.skill?.id, skillName:vs.skill?.name}))
+                setBackendVolunteerSkills(normalizedLinks)
 
                 setForm((prev) => ({
                     ...prev,
-                    skills: mine
+                    skills: normalizedLinks
                         .map((vs) => vs.skillName)
                         .filter(Boolean)
                         .join(', '),
                 }))
             })
             .catch((err) => console.error('Volunteer skills error:', err))
+    }, [user?.id])
+
+    useEffect(() => {
+        Promise.all([
+            apiFetch('http://localhost:8080/api/assignments', {credentials:'include'}).then((r) => r.ok ? r.json() : []),
+            apiFetch('http://localhost:8080/api/participations/mine', {credentials:'include'}).then((r) => r.ok ? r.json() : []),
+        ]).then(([a,p]) => { setProfileAssignments(a); setProfileParticipation(p) })
+            .catch((e) => console.error('Profile activity error:', e))
     }, [user?.id])
 
     const initials = (user?.name || 'Volunteer')
@@ -1422,18 +1474,27 @@ function VolunteerProfile() {
                 skills: form.skills.split(',').map((s) => s.trim()).filter(Boolean),
             }
 
-            const volunteersResponse = await fetch('http://localhost:8080/api/volunteers')
+            const volunteersResponse = await apiFetch('http://localhost:8080/api/volunteers', { credentials: 'include' })
             if (!volunteersResponse.ok) throw new Error('Could not load volunteers')
 
             const volunteers = await volunteersResponse.json()
             const volunteer = volunteers.find(
-                (v) => String(v.userId) === String(user?.id) )
+                (v) => String(v.user?.id) === String(user?.id) )
             if (!volunteer) {
                 alert('Volunteer profile not found in the database.')
                 return
             }
 
+            const profileResponse = await apiFetch(`http://localhost:8080/api/volunteers/${volunteer.id}`, {
+                method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ location: updatedUser.location, availability: updatedUser.availability }),
+            })
+            if (!profileResponse.ok) throw new Error('Could not update volunteer profile')
+
             const requestedNames = updatedUser.skills.map((s) => s.toLowerCase())
+            const skillsResponse = await apiFetch('http://localhost:8080/api/skills', {credentials:'include'})
+            if (!skillsResponse.ok) throw new Error('Could not load available skills')
+            const availableSkills = await skillsResponse.json()
             const skillMap = new Map(
                 availableSkills.map((s) => [s.name.toLowerCase(), s])
             )
@@ -1441,8 +1502,9 @@ function VolunteerProfile() {
             // Create skills that don't exist yet.
             for (const name of updatedUser.skills) {
                 if (!skillMap.has(name.toLowerCase())) {
-                    const response = await fetch('http://localhost:8080/api/skills', {
+                    const response = await apiFetch('http://localhost:8080/api/skills', {
                         method: 'POST',
+                        credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name }),
                     })
@@ -1465,8 +1527,9 @@ function VolunteerProfile() {
             // Add new volunteer-skill links.
             for (const skill of desiredSkills) {
                 if (!existingIds.has(String(skill.id))) {
-                    const response = await fetch('http://localhost:8080/api/volunteer-skills', {
+                    const response = await apiFetch('http://localhost:8080/api/volunteer-skills', {
                         method: 'POST',
+                        credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             volunteer: { id: volunteer.id },
@@ -1480,15 +1543,18 @@ function VolunteerProfile() {
 
             // Remove links for skills that were deleted from the profile.
             for (const link of backendVolunteerSkills) {
-                if (!desiredIds.has(String(link.skillId))) {                    const response = await fetch(
+                if (!desiredIds.has(String(link.skillId))) {                    const response = await apiFetch(
                         `http://localhost:8080/api/volunteer-skills/${link.id}`,
-                        { method: 'DELETE' }
+                        { method: 'DELETE', credentials: 'include' }
                     )
 
                     if (!response.ok) throw new Error('Could not remove an old skill')
                 }
             }
 
+            const refreshedLinksResponse = await apiFetch('http://localhost:8080/api/volunteer-skills', { credentials: 'include' })
+            const refreshedLinks = refreshedLinksResponse.ok ? await refreshedLinksResponse.json() : []
+            setBackendVolunteerSkills(refreshedLinks.map((vs) => ({...vs, volunteerId:vs.volunteer?.id, skillId:vs.skill?.id, skillName:vs.skill?.name})))
             writeStorage(
                 STORAGE.users,
                 getUsers().map((u) => u.id === updatedUser.id ? updatedUser : u)
@@ -1496,14 +1562,6 @@ function VolunteerProfile() {
             writeStorage(STORAGE.currentUser, updatedUser)
 
             setUser(updatedUser)
-            setBackendVolunteerSkills(
-                desiredSkills.map((skill) => ({
-                    id: `skill-${skill.id}`,
-                    volunteerId: volunteer.id,
-                    skillId: skill.id,
-                    skillName: skill.name,
-                }))
-            )
             setEditing(false)
             alert('Profile and skills saved successfully!')
         } catch (error) {
@@ -1544,9 +1602,9 @@ function VolunteerProfile() {
                         <h2>{user?.name}</h2>
                         <p>Volunteer • {formatLocation(user)} • Available {user?.availability || 'not set'}</p>
                         <div className="profile-stats">
-                            <span><b>{getAssignments().filter((a) => a.volunteerId === user?.id).length}</b><small>Assignments</small></span>
-                            <span><b>{getHistory().filter((h) => h.volunteerId === user?.id).reduce((sum, h) => sum + Number(h.hours || 0), 0)}</b><small>Hours</small></span>
-                            <span><b>{getVolunteerAverageRating(user?.id) ?? '—'}{getVolunteerAverageRating(user?.id) ? ' ⭐' : ''}</b><small>Rating</small></span>
+                            <span><b>{profileAssignments.length}</b><small>Assignments</small></span>
+                            <span><b>{profileParticipation.reduce((sum, p) => sum + Number(p.hours || 0), 0)}</b><small>Hours</small></span>
+                            <span><b>{profileParticipation.some((p) => p.rating) ? (profileParticipation.reduce((sum,p)=>sum+Number(p.rating||0),0)/profileParticipation.filter((p)=>p.rating).length).toFixed(1) : '—'}{profileParticipation.some((p)=>p.rating) ? ' ⭐' : ''}</b><small>Rating</small></span>
                         </div>
                     </div>
                 </section>
@@ -1613,9 +1671,8 @@ function Opportunities() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [backendMatches, setBackendMatches] = useState({})
-
-    const interests = getInterests()
-    const assignments = getAssignments()
+    const [applications, setApplications] = useState([])
+    const [assignments, setAssignments] = useState([])
 
     // Load requirements from Spring Boot backend
     useEffect(() => {
@@ -1625,7 +1682,7 @@ function Opportunities() {
                 setError('')
 
                 // Get requirements from backend
-                const requirementsResponse = await fetch(
+                const requirementsResponse = await apiFetch(
                     'http://localhost:8080/api/requirements',
                     {
                         method: 'GET',
@@ -1643,12 +1700,17 @@ function Opportunities() {
                 const requirementsData =
                     await requirementsResponse.json()
 
+                const applicationsResponse = await apiFetch('http://localhost:8080/api/applications', { credentials: 'include' })
+                if (applicationsResponse.ok) setApplications(await applicationsResponse.json())
+                const assignmentsResponse = await apiFetch('http://localhost:8080/api/assignments', { credentials: 'include' })
+                if (assignmentsResponse.ok) setAssignments(await assignmentsResponse.json())
+
                 // Get requirement-skill relationships
                 let requirementSkillsData = []
 
                 try {
                     const requirementSkillsResponse =
-                        await fetch(
+                        await apiFetch(
                             'http://localhost:8080/api/requirement-skills',
                             {
                                 method: 'GET',
@@ -1755,7 +1817,7 @@ function Opportunities() {
                 setRequirements(mappedRequirements)
 
                 if (user?.id) {
-                    const volunteerResponse = await fetch(
+                    const volunteerResponse = await apiFetch(
                         'http://localhost:8080/api/volunteers',
                         { credentials: 'include' }
                     )
@@ -1770,8 +1832,8 @@ function Opportunities() {
                         if (volunteer) {
                             const matchResults = await Promise.all(
                                 mappedRequirements.map(async (r) => {
-                                    const response = await fetch(
-                                        `http://localhost:8080/api/matching/${volunteer.id}/${r.id}`,
+                                    const response = await apiFetch(
+                                        `http://localhost:8080/api/matching/percentage?volunteerId=${volunteer.id}&requirementId=${r.id}`,
                                         { credentials: 'include' }
                                     )
 
@@ -1886,7 +1948,7 @@ function Opportunities() {
     // Volunteer clicks "I'm Interested"
     const respond = async (requirement) => {
         try {
-            const response = await fetch(
+            const response = await apiFetch(
                 'http://localhost:8080/api/applications',
                 {
                     method: 'POST',
@@ -1921,23 +1983,7 @@ function Opportunities() {
                 application
             )
 
-            // Keep the button showing "Interested"
-            // in the current frontend UI.
-            const existing = getInterests()
-
-            existing.push({
-                id: makeId('interest'),
-                requirementId: requirement.id,
-                volunteerId: user.id,
-                ngoId: requirement.ngoId,
-                status: 'interested',
-                createdAt: new Date().toISOString(),
-            })
-
-            writeStorage(
-                STORAGE.interests,
-                existing
-            )
+            setApplications((current) => [...current, application])
 
             setRequirements((current) => [
                 ...current,
@@ -2067,7 +2113,7 @@ function Opportunities() {
                     {scored.map((r) => {
 
                         const interested =
-                            interests.some(
+                            applications.some(
                                 (i) =>
                                     String(
                                         i.requirementId
@@ -2178,9 +2224,15 @@ function Opportunities() {
 }
 
 function Accepted() {
-    const user = getCurrentUser()
-    const interests = getInterests().filter((i) => i.volunteerId === user?.id)
-    const requirements = getRequirements()
+    const [interests, setInterests] = useState([])
+    const [requirements, setRequirements] = useState([])
+    useEffect(() => {
+        Promise.all([
+            apiFetch('http://localhost:8080/api/applications', { credentials: 'include' }).then((r) => r.ok ? r.json() : []),
+            apiFetch('http://localhost:8080/api/requirements', {credentials:'include'}).then((r) => r.ok ? r.json() : []),
+        ]).then(([apps, reqs]) => { setInterests(apps); setRequirements(reqs.map((r) => ({...r, ngoName:r.ngo?.organisationName || 'NGO', description:r.taskDescription}))) })
+            .catch((e) => console.error('Could not load application status', e))
+    }, [])
     const responded = interests.map((interest) => ({
         interest,
         requirement: requirements.find((r) => r.id === interest.requirementId),
@@ -2193,7 +2245,7 @@ function Accepted() {
                 {responded.length === 0 ? <EmptyState title="No responses yet" text="Express interest in an opportunity and it will appear here." /> : (
                     <div className="list">
                         {responded.map(({ interest, requirement }) => {
-                            const assigned = interest.status === 'assigned' || getAssignments().some((a) => a.requirementId === requirement.id && a.volunteerId === user.id)
+                            const assigned = String(interest.status).toUpperCase() === 'ACCEPTED'
                             return (
                                 <div className="item" key={interest.id}>
                                     <div className="avatar">{requirement.ngoName.slice(0, 2).toUpperCase()}</div>
@@ -2212,46 +2264,25 @@ function Accepted() {
 }
 
 function VolunteerAssignments() {
-    const user = getCurrentUser()
 
-    const loadAssignments = () => {
-        const currentUser = getCurrentUser()
-
-        if (!currentUser) {
-            setAssignments([])
-            return
-        }
-
-        const allAssignments = getAssignments()
-        setAssignments(
-            allAssignments.filter(
-                (assignment) =>
-                    String(assignment.volunteerId) ===
-                    String(currentUser.id)
-            )
-        )
+    const loadAssignments = async () => {
+        try {
+            const response = await apiFetch('http://localhost:8080/api/assignments', { credentials: 'include' })
+            if (!response.ok) throw new Error('Could not load assignments')
+            setAssignments(await response.json())
+        } catch (error) { console.error('Assignments error:', error); setAssignments([]) }
     }
 
     const [assignments, setAssignments] = useState(() => {
-        if (!user) return []
-        return getAssignments().filter(
-            (assignment) =>
-                String(assignment.volunteerId) === String(user.id)
-        )
+        return []
     })
 
     useEffect(() => {
         loadAssignments()
-        window.addEventListener('volunteerlink-data-change', loadAssignments)
-        window.addEventListener('storage', loadAssignments)
-
-        return () => {
-            window.removeEventListener('volunteerlink-data-change', loadAssignments)
-            window.removeEventListener('storage', loadAssignments)
-        }
+        return undefined
     }, [])
 
-    const completeAssignment = (assignment) => {
+    const completeAssignment = async (assignment) => {
         const endDateTime = getAssignmentEndDateTime(assignment)
         if (!endDateTime || new Date() < endDateTime) return
 
@@ -2260,39 +2291,14 @@ function VolunteerAssignments() {
         )
         if (!confirmed) return
 
-        const allAssignments = getAssignments().map((a) =>
-            a.id === assignment.id
-                ? { ...a, status: 'completed', completedAt: new Date().toISOString() }
-                : a
-        )
-        writeStorage(STORAGE.assignments, allAssignments)
-
-        const history = getHistory()
-        if (!history.some((h) => h.assignmentId === assignment.id)) {
-            history.push({
-                id: makeId('history'),
-                assignmentId: assignment.id,
-                requirementId: assignment.requirementId,
-                volunteerId: assignment.volunteerId,
-                ngoId: assignment.ngoId,
-                requirementTitle: assignment.requirementTitle,
-                ngoName: assignment.ngoName,
-                volunteerName: assignment.volunteerName,
-                date: assignment.date,
-                time: assignment.time,
-                location: assignment.location,
-                hours: getAssignmentHours(assignment),
-                status: 'completed',
-                createdAt: new Date().toISOString(),
+        try {
+            const hours = Math.max(1, Math.ceil(getAssignmentHours(assignment)))
+            const response = await apiFetch(`http://localhost:8080/api/participations/assignments/${assignment.id}/complete?hours=${hours}`, {
+                method: 'POST', credentials: 'include',
             })
-            writeStorage(STORAGE.history, history)
-        }
-
-        setAssignments(
-            allAssignments.filter(
-                (a) => String(a.volunteerId) === String(user.id)
-            )
-        )
+            if (!response.ok) throw new Error(await response.text() || 'Could not record completion')
+            await loadAssignments()
+        } catch (error) { alert(error.message) }
     }
 
     return (
@@ -2316,7 +2322,7 @@ function VolunteerAssignments() {
                             const canComplete = Boolean(
                                 endDateTime && new Date() >= endDateTime
                             )
-                            const completed = assignment.status === 'completed'
+                            const completed = String(assignment.status).toLowerCase() === 'completed'
 
                             return (
                                 <div className="item" key={assignment.id}>
@@ -2378,62 +2384,41 @@ function VolunteerAssignments() {
 function History() {
     const user = getCurrentUser()
     const isNgo = user?.role === 'ngo'
-    const [history, setHistory] = useState(() =>
-        getHistory().filter((h) => isNgo ? h.ngoId === user.id : h.volunteerId === user.id)
-    )
-    const [ratings, setRatings] = useState(getRatings)
+    const [history, setHistory] = useState([])
+    const [ratings, setRatings] = useState([])
     const [ratingValues, setRatingValues] = useState({})
 
     useEffect(() => {
-        const refresh = () => {
-            setHistory(
-                getHistory().filter((h) =>
-                    isNgo ? h.ngoId === user.id : h.volunteerId === user.id
-                )
-            )
-            setRatings(getRatings())
-        }
-        window.addEventListener('volunteerlink-data-change', refresh)
-        window.addEventListener('storage', refresh)
-        return () => {
-            window.removeEventListener('volunteerlink-data-change', refresh)
-            window.removeEventListener('storage', refresh)
-        }
+        apiFetch('http://localhost:8080/api/participations/mine', { credentials: 'include' })
+            .then((r) => r.ok ? r.json() : Promise.reject(new Error('Could not load participation history')))
+            .then((items) => {
+                const mapped = items.map((p) => ({ id:p.id, assignmentId:p.assignment?.id, requirementId:p.assignment?.requirement?.id,
+                    volunteerId:p.assignment?.volunteer?.id, volunteerName:p.assignment?.volunteer?.user?.name,
+                    ngoId:p.assignment?.requirement?.ngo?.user?.id, ngoName:p.assignment?.requirement?.ngo?.organisationName,
+                    requirementTitle:p.assignment?.requirement?.title, date:p.assignment?.requirement?.date, hours:p.hours,
+                    status:p.status, rating:p.rating }))
+                setHistory(mapped); setRatings(mapped.filter((h) => h.rating).map((h) => ({assignmentId:h.assignmentId, ngoId:h.ngoId, rating:h.rating})))
+            }).catch((e) => console.error('Participation history error:', e))
+        return undefined
     }, [isNgo, user?.id])
 
     const completedHours = history.reduce(
         (sum, h) => sum + Number(h.hours || 0), 0
     )
 
-    const submitRating = (historyItem) => {
-        const value = Number(ratingValues[historyItem.assignmentId] || 0)
+    const submitRating = async (historyItem) => {
+        const value = Number(ratingValues[historyItem.id] || 0)
         if (value < 1 || value > 5) {
             alert('Please select a rating from 1 to 5 stars.')
             return
         }
 
-        const existing = getRatings().find(
-            (rating) =>
-                String(rating.assignmentId) === String(historyItem.assignmentId) &&
-                String(rating.ngoId) === String(user.id)
-        )
-        if (existing) return
-
-        const nextRatings = [
-            ...getRatings(),
-            {
-                id: makeId('rating'),
-                assignmentId: historyItem.assignmentId,
-                requirementId: historyItem.requirementId,
-                volunteerId: historyItem.volunteerId,
-                ngoId: user.id,
-                rating: value,
-                createdAt: new Date().toISOString(),
-            },
-        ]
-
-        writeStorage(STORAGE.ratings, nextRatings)
-        setRatings(nextRatings)
+        try {
+            const response = await apiFetch(`http://localhost:8080/api/participations/${historyItem.id}/rating?rating=${value}`, {method:'PUT', credentials:'include'})
+            if (!response.ok) throw new Error(await response.text() || 'Could not save rating')
+            setHistory((current) => current.map((item) => item.id === historyItem.id ? {...item, rating:value} : item))
+            setRatings((current) => [...current, {assignmentId:historyItem.assignmentId, ngoId:user.id, rating:value}])
+        } catch (error) { alert(error.message) }
     }
 
     return (
@@ -2528,8 +2513,9 @@ function NgoDashboard() {
     const [volunteers, setVolunteers] = useState([])
     const [requirements, setRequirements] = useState([])
     const [assignments, setAssignments] = useState([])
+    const [completed, setCompleted] = useState([])
     useEffect(() => {
-        fetch('http://localhost:8080/api/applications', {
+        apiFetch('http://localhost:8080/api/applications', {
             credentials: 'include',
         })
             .then((response) => {
@@ -2546,21 +2532,21 @@ function NgoDashboard() {
             })
     }, [])
     useEffect(() => {
-        fetch('http://localhost:8080/api/volunteers')
+        apiFetch('http://localhost:8080/api/volunteers', { credentials: 'include' })
             .then((response) => response.json())
             .then((data) => setVolunteers(data))
             .catch((error) => console.error('Volunteers error:', error))
     }, [])
 
     useEffect(() => {
-        fetch('http://localhost:8080/api/requirements')
+            apiFetch('http://localhost:8080/api/requirements', { credentials: 'include' })
             .then((response) => response.json())
             .then((data) => setRequirements(data))
             .catch((error) => console.error('Requirements error:', error))
     }, [])
 
     useEffect(() => {
-        fetch('http://localhost:8080/api/assignments', {
+        apiFetch('http://localhost:8080/api/assignments', {
             credentials: 'include',
         })
             .then((response) => {
@@ -2595,6 +2581,13 @@ function NgoDashboard() {
         )
     )
 
+    useEffect(() => {
+        apiFetch('http://localhost:8080/api/participations/mine', { credentials: 'include' })
+            .then((response) => response.ok ? response.json() : [])
+            .then(setCompleted)
+            .catch((error) => console.error('Participation history error:', error))
+    }, [])
+
     const myRequirementIds = new Set(
         myRequirements.map((r) => String(r.id))
     )
@@ -2603,25 +2596,9 @@ function NgoDashboard() {
         (a) => myRequirementIds.has(String(a.requirementId))
     )
 
-    const localRequirements = getRequirements().filter(
-        (r) => String(r.ngoId) === String(user?.id)
-    )
-
-    const interests = getInterests().filter(
-        (i) => String(i.ngoId) === String(user?.id)
-    )
-
-    const myAssignments = assignments.filter(
-        (a) => myRequirementIds.has(String(a.requirementId))
-    )
-
-    const completed = getHistory().filter(
-        (h) => String(h.ngoId) === String(user?.id)
-    )
-
     const updateApplicationStatus = async (applicationId, status) => {
         try {
-            const response = await fetch(
+            const response = await apiFetch(
                 `http://localhost:8080/api/applications/${applicationId}/status?status=${status}`,
                 {
                     method: 'PUT',
@@ -2760,7 +2737,6 @@ function formatTimeInput(value) {
 
 
 function Requirements() {
-    const user = getCurrentUser()
 
     const [form, setForm] = useState({
         title: '',
@@ -2809,7 +2785,7 @@ function Requirements() {
                 `${formatTimeInput(form.startTime)} - ${formatTimeInput(form.endTime)}`
 
             // 1. Save the requirement in MySQL
-            const requirementResponse = await fetch(
+            const requirementResponse = await apiFetch(
                 'http://localhost:8080/api/requirements',
                 {
                     method: 'POST',
@@ -2839,7 +2815,7 @@ function Requirements() {
                 await requirementResponse.json()
 
             // 2. Load skills already stored in MySQL
-            const skillsResponse = await fetch(
+            const skillsResponse = await apiFetch(
                 'http://localhost:8080/api/skills',
                 { credentials: 'include' }
             )
@@ -2867,7 +2843,7 @@ function Requirements() {
                 )
 
                 if (!skill) {
-                    const createSkillResponse = await fetch(
+                    const createSkillResponse = await apiFetch(
                         'http://localhost:8080/api/skills',
                         {
                             method: 'POST',
@@ -2891,7 +2867,7 @@ function Requirements() {
                     availableSkills.push(skill)
                 }
 
-                const linkResponse = await fetch(
+                const linkResponse = await apiFetch(
                     'http://localhost:8080/api/requirement-skills',
                     {
                         method: 'POST',
@@ -3072,7 +3048,7 @@ function MyRequirements() {
             setLoading(true)
             setError('')
 
-            const response = await fetch(
+            const response = await apiFetch(
                 'http://localhost:8080/api/requirements',
                 {
                     method: 'GET',
@@ -3151,7 +3127,7 @@ function MyRequirements() {
 
             <section className="panel">
 
-                {myRequirements.length === 0 ? (
+                {requirements.length === 0 ? (
 
                     <EmptyState
                         title="No requirements yet"
@@ -3211,21 +3187,44 @@ function MyRequirements() {
 
 function Interested() {
     const user = getCurrentUser()
-    const requirements = getRequirements().filter((r) => r.ngoId === user?.id)
+    const [requirements, setRequirements] = useState([])
+    const [applications, setApplications] = useState([])
     const [selectedRequirementId, setSelectedRequirementId] = useState(requirements[0]?.id || '')
-    const [volunteers, setVolunteers] = useState(getVolunteers())
+    const [volunteers, setVolunteers] = useState([])
+    const [backendAssignments, setBackendAssignments] = useState([])
     const [assigned, setAssigned] = useState('')
 
-    const interests = getInterests().filter((i) => i.ngoId === user?.id && (!selectedRequirementId || i.requirementId === selectedRequirementId))
-    const requirement = requirements.find((r) => r.id === selectedRequirementId)
+    const reload = async () => {
+        const options = { credentials: 'include' }
+        const [reqRes, appRes, volRes, assignmentRes, skillsRes] = await Promise.all([
+            apiFetch('http://localhost:8080/api/requirements', options), apiFetch('http://localhost:8080/api/applications', options),
+            apiFetch('http://localhost:8080/api/volunteers', options), apiFetch('http://localhost:8080/api/assignments', options), apiFetch('http://localhost:8080/api/volunteer-skills', options),
+        ])
+        if (reqRes.ok) {
+            const mine = (await reqRes.json()).filter((r) => String(r.ngo?.user?.id) === String(user?.id)).map((r) => ({...r, ngoId:r.ngo?.user?.id, ngoName:r.ngo?.organisationName, description:r.taskDescription}))
+            setRequirements(mine)
+            if (!selectedRequirementId && mine.length) setSelectedRequirementId(String(mine[0].id))
+        }
+        const appRows = appRes.ok ? await appRes.json() : []
+        setApplications(appRows)
+        if (volRes.ok) {
+            const links = skillsRes.ok ? await skillsRes.json() : []
+            const byVolunteer = new Map()
+            links.forEach((link) => { const key=String(link.volunteer?.id); byVolunteer.set(key, [...(byVolunteer.get(key)||[]), link.skill?.name].filter(Boolean)) })
+            setVolunteers((await volRes.json()).map((v) => {
+                const response = appRows.find((a) => String(a.volunteerId) === String(v.id))
+                return {...v, userId:v.user?.id, name:v.user?.name, email:response?.volunteerEmail, phone:response?.volunteerPhone, skills:byVolunteer.get(String(v.id)) || []}
+            }))
+        }
+        if (assignmentRes.ok) setBackendAssignments(await assignmentRes.json())
+    }
+    useEffect(() => { reload().catch((e) => console.error('Could not load volunteer responses', e)) }, [])
+    const interests = applications.filter((i) => String(i.requirementId) === String(selectedRequirementId) && ['PENDING','ACCEPTED'].includes(String(i.status).toUpperCase()))
+    const requirement = requirements.find((r) => String(r.id) === String(selectedRequirementId))
 
-    const refresh = () => setVolunteers(getVolunteers())
-
-    const assign = (volunteer, req) => {
+    const assign = async (volunteer, req) => {
         if (!req) return
-
-        const assignments = getAssignments()
-        const requirementAssignments = assignments.filter(
+        const requirementAssignments = backendAssignments.filter(
             (a) => String(a.requirementId) === String(req.id)
         )
         const volunteersNeeded = Math.max(1, Number(req.volunteersNeeded) || 1)
@@ -3244,32 +3243,11 @@ function Interested() {
             return
         }
 
-        assignments.push({
-            id: makeId('assignment'),
-            requirementId: req.id,
-            volunteerId: volunteer.id,
-            ngoId: user.id,
-            volunteerName: volunteer.name,
-            ngoName: user.organisation || user.name,
-            requirementTitle: req.title,
-            location: req.location,
-            date: req.date,
-            time: req.time,
-            description: req.description,
-            status: 'assigned',
-            createdAt: new Date().toISOString(),
-        })
-        writeStorage(STORAGE.assignments, assignments)
-
-        // Mark this volunteer's response as selected by the NGO.
-        const updatedInterests = getInterests().map((interest) =>
-            interest.requirementId === req.id && interest.volunteerId === volunteer.id
-                ? { ...interest, status: 'assigned', assignedAt: new Date().toISOString() }
-                : interest
-        )
-        writeStorage(STORAGE.interests, updatedInterests)
-
-        setAssigned(volunteer.name)
+        const application = applications.find((a) => String(a.requirementId) === String(req.id) && String(a.volunteerId) === String(volunteer.id))
+        if (!application) return
+        const response = await apiFetch(`http://localhost:8080/api/applications/${application.id}/status?status=ACCEPTED`, {method:'PUT', credentials:'include'})
+        if (!response.ok) { alert(await response.text()); return }
+        setAssigned(volunteer.name); await reload()
     }
 
     return (
@@ -3292,7 +3270,7 @@ function Interested() {
                                 {Math.max(
                                     0,
                                     Number(requirement.volunteersNeeded || 1) -
-                                    getAssignments().filter(
+                                    backendAssignments.filter(
                                         (a) => String(a.requirementId) === String(requirement.id)
                                     ).length
                                 )} volunteer(s) still needed • {formatLocation(requirement)} • {requirement.date} • {requirement.time}
@@ -3305,11 +3283,11 @@ function Interested() {
                             <section className="panel"><EmptyState title="No volunteers have responded yet" text="When a volunteer clicks “I’m Interested” for this requirement, they will appear here." /></section>
                         ) : (
                             interests.map((interest) => {
-                                const volunteer = volunteers.find((v) => v.id === interest.volunteerId)
+                                const volunteer = volunteers.find((v) => String(v.id) === String(interest.volunteerId))
                                 if (!volunteer) return null
                                 const score = calculateMatch(requirement, volunteer)
                                 const initials = volunteer.name.split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()
-                                const requirementAssignments = getAssignments().filter(
+                                        const requirementAssignments = backendAssignments.filter(
                                     (a) => String(a.requirementId) === String(requirement.id)
                                 )
                                 const volunteersNeeded = Math.max(
@@ -3352,7 +3330,6 @@ function Interested() {
                     {assigned && <div className="toast show">{assigned} selected. Assignment created.</div>}
                 </>
             )}
-            <button onClick={refresh} style={{ display: 'none' }}>refresh</button>
         </Layout>
     )
 }
@@ -3360,14 +3337,31 @@ function Interested() {
 function VolunteerView() {
     const params = new URLSearchParams(window.location.hash.split('?')[1] || '')
     const volunteerId = params.get('id')
-    const volunteer = getVolunteers().find((v) => v.id === volunteerId)
+    const [volunteer, setVolunteer] = useState(null)
+    const [history, setHistory] = useState([])
+    const [assignmentCount, setAssignmentCount] = useState(0)
+    useEffect(() => {
+        const options = {credentials:'include'}
+        Promise.all([
+            apiFetch(`http://localhost:8080/api/volunteers/${volunteerId}`, options),
+            apiFetch('http://localhost:8080/api/volunteer-skills', options),
+            apiFetch('http://localhost:8080/api/assignments', options),
+            apiFetch('http://localhost:8080/api/participations/mine', options),
+        ]).then(async ([vr,sr,ar,pr]) => {
+            if (!vr.ok) throw new Error('Volunteer not found')
+            const v=await vr.json(), skills=sr.ok?await sr.json():[], assigns=ar.ok?await ar.json():[], parts=pr.ok?await pr.json():[]
+            setVolunteer({...v, name:v.user?.name || 'Volunteer', skills:skills.filter((s)=>String(s.volunteer?.id)===String(v.id)).map((s)=>s.skill?.name).filter(Boolean)})
+            setAssignmentCount(assigns.filter((a)=>String(a.volunteerId)===String(v.id)).length)
+            setHistory(parts.filter((p)=>String(p.assignment?.volunteer?.id)===String(v.id)).map((p)=>({id:p.id, requirementTitle:p.assignment?.requirement?.title, date:p.assignment?.requirement?.date, hours:p.hours, rating:p.rating})))
+        }).catch((e)=>console.error('Volunteer profile error:',e))
+    }, [volunteerId])
 
     if (!volunteer) {
         return <Layout ngo active="/ngo-interested"><Header eyebrow="VOLUNTEER PROFILE" title="Volunteer not found" text="The requested volunteer does not exist in the current data." button={<Link to="/ngo-interested" className="btn btn-soft">← Back</Link>} /><section className="panel"><EmptyState title="Volunteer not found" text="Return to Interested Volunteers and select a registered volunteer." /></section></Layout>
     }
 
     const initials = volunteer.name.split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase()
-    const assignments = getHistory().filter((h) => h.volunteerId === volunteer.id)
+    const assignments = history
 
     return (
         <Layout ngo active="/ngo-interested">
@@ -3376,11 +3370,11 @@ function VolunteerView() {
                 <div className="profile-center">
                     <div className="avatar avatar-lg">{initials}</div>
                     <h1>{volunteer.name}</h1>
-                    <p>{volunteer.email} • {volunteer.phone}</p>
+                    <p>Volunteer profile</p>
                     <div className="profile-stats">
-                        <span><b>{getAssignments().filter((a) => a.volunteerId === volunteer.id).length}</b><small>Assignments</small></span>
+                        <span><b>{assignmentCount}</b><small>Assignments</small></span>
                         <span><b>{assignments.reduce((sum, h) => sum + Number(h.hours || 0), 0)}</b><small>Hours</small></span>
-                        <span><b>{getVolunteerAverageRating(volunteer.id) ?? '—'}{getVolunteerAverageRating(volunteer.id) ? ' ⭐' : ''}</b><small>Rating</small></span>
+                        <span><b>{history.some((h)=>h.rating) ? (history.reduce((sum,h)=>sum+Number(h.rating||0),0)/history.filter((h)=>h.rating).length).toFixed(1) : '—'}{history.some((h)=>h.rating) ? ' ⭐' : ''}</b><small>Rating</small></span>
                     </div>
                 </div>
                 <hr style={{ border: 0, borderTop: '1px solid #edf1f5', margin: '20px 0' }} />
@@ -3394,13 +3388,12 @@ function VolunteerView() {
 }
 
 function NgoAssignments() {
-    const user = getCurrentUser()
 
     const [list, setList] = useState([])
 
     const loadAssignments = async () => {
         try {
-            const response = await fetch(
+            const response = await apiFetch(
                 'http://localhost:8080/api/assignments',
                 { credentials: 'include' }
             )
@@ -3453,8 +3446,8 @@ function NgoAssignments() {
                                     </small>
                                     <small>{a.description}</small>
                                 </div>
-                                <span className={`badge ${a.status === 'completed' ? 'badge-green' : 'badge-blue'}`}>
-                                    {a.status === 'completed' ? 'Completed' : 'Assigned'}
+                                <span className={`badge ${String(a.status).toLowerCase() === 'completed' ? 'badge-green' : 'badge-blue'}`}>
+                                    {String(a.status).toLowerCase() === 'completed' ? 'Completed' : 'Assigned'}
                                 </span>
                             </div>
                         ))}
@@ -3467,11 +3460,37 @@ function NgoAssignments() {
 
 function App() {
     const [path, setPath] = useState(window.location.hash.slice(1) || '/')
+    const [, setSessionReady] = useState(false)
 
     useEffect(() => {
         const onHashChange = () => setPath(window.location.hash.slice(1) || '/')
         window.addEventListener('hashchange', onHashChange)
         return () => window.removeEventListener('hashchange', onHashChange)
+    }, [])
+
+    useEffect(() => {
+        apiFetch('http://localhost:8080/api/auth/session', { credentials: 'include' }).then(async (response) => {
+            if (!response.ok) {
+                if (getCurrentUser()) {
+                    localStorage.removeItem(STORAGE.currentUser)
+                    const activePath = (window.location.hash.slice(1) || '/').split('?')[0]
+                    if (activePath.startsWith('/volunteer-') || ['/opportunities','/volunteer-profile','/history'].includes(activePath) || activePath.startsWith('/ngo-') || ['/requirements','/ngo-requirements','/ngo-interested','/volunteer-view'].includes(activePath)) setPath('/login')
+                }
+                return
+            }
+            const sessionUser = await response.json()
+            const user = {id:sessionUser.id, name:sessionUser.name, email:sessionUser.email, phone:sessionUser.phone, role:String(sessionUser.role).toLowerCase()}
+            if (user.role === 'volunteer') {
+                const [vr, sr] = await Promise.all([apiFetch('http://localhost:8080/api/volunteers',{credentials:'include'}),apiFetch('http://localhost:8080/api/volunteer-skills',{credentials:'include'})])
+                const volunteers = vr.ok ? await vr.json() : []
+                const links = sr.ok ? await sr.json() : []
+                const volunteer = volunteers.find((v) => String(v.user?.id) === String(user.id))
+                user.location = volunteer?.location || ''; user.availability = volunteer?.availability || ''
+                user.skills = links.map((link) => link.skill?.name).filter(Boolean)
+            }
+            writeStorage(STORAGE.currentUser, user)
+            setSessionReady(true)
+        }).catch((error) => console.error('Session restore failed:', error))
     }, [])
 
     const routePath = path.split('?')[0]
