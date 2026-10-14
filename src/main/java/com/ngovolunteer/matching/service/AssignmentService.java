@@ -22,6 +22,12 @@ public class AssignmentService {
     public List<Assignment> getAllAssignments() {
         return assignmentRepository.findAll();
     }
+    public List<Assignment> getAssignmentsByNgoUserId(Long userId) {
+        return assignmentRepository.findByRequirementNgoUserId(userId);
+    }
+    public List<Assignment> getAssignmentsByVolunteerUserId(Long userId) {
+        return assignmentRepository.findByVolunteerUserId(userId);
+    }
 
     public Assignment getAssignmentById(Long id) {
         return assignmentRepository.findById(id).orElse(null);
@@ -35,10 +41,10 @@ public class AssignmentService {
             return null;
         }
 
-        existingAssignment.setRequirement(assignment.getRequirement());
-        existingAssignment.setVolunteer(assignment.getVolunteer());
-        existingAssignment.setStatus(assignment.getStatus());
-        existingAssignment.setAssignedAt(assignment.getAssignedAt());
+        String status = assignment.getStatus() == null ? "" : assignment.getStatus().trim().toUpperCase();
+        if (!java.util.Set.of("ASSIGNED", "CANCELLED").contains(status))
+            throw new IllegalArgumentException("Invalid assignment status; completion is recorded through participation");
+        existingAssignment.setStatus(status);
 
         return assignmentRepository.save(existingAssignment);
     }

@@ -6,19 +6,24 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
+import com.ngovolunteer.matching.service.SessionService;
+import jakarta.servlet.http.HttpSession;
 
 @RestController
 @RequestMapping("/api/reports")
 public class ReportController {
 
     private final ReportService reportService;
+    private final SessionService sessionService;
 
-    public ReportController(ReportService reportService) {
+    public ReportController(ReportService reportService, SessionService sessionService) {
         this.reportService = reportService;
+        this.sessionService = sessionService;
     }
 
     @GetMapping("/summary")
-    public ResponseEntity<?> getSummary() {
+    public ResponseEntity<?> getSummary(HttpSession session) {
+        if (!sessionService.isLoggedIn(session)) return ResponseEntity.status(401).body("Not logged in");
 
         Map<String, Long> report = new HashMap<>();
 

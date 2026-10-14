@@ -32,13 +32,7 @@ public class ActivityLogController {
                     .body("Not logged in");
         }
 
-        if (!sessionService.hasRole(session, "NGO")) {
-            return ResponseEntity.status(403)
-                    .body("Only NGOs can view activity logs");
-        }
-
-        List<ActivityLog> logs =
-                activityLogRepository.findAll();
+        List<ActivityLog> logs = activityLogRepository.findByUserId(sessionService.getLoggedInUserId(session));
 
         return ResponseEntity.ok(logs);
     }

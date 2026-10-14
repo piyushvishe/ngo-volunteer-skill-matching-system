@@ -72,8 +72,9 @@ public class ApplicationController {
 
         if (sessionService.hasRole(session, "NGO")) {
 
+            Long userId = sessionService.getLoggedInUserId(session);
             List<ApplicationResponse> applications =
-                    applicationRepository.findAll()
+                    applicationRepository.findByRequirementNgoUserId(userId)
                             .stream()
                             .map(this::toResponse)
                             .toList();
@@ -126,7 +127,7 @@ public class ApplicationController {
         }
 
         Application updatedApplication =
-                applicationService.updateStatus(id, status);
+                applicationService.updateStatus(id, status, sessionService.getLoggedInUserId(session));
 
         return ResponseEntity.ok(
                 toResponse(updatedApplication)
@@ -136,11 +137,6 @@ public class ApplicationController {
     private ApplicationResponse toResponse(
             Application application) {
 
-        return new ApplicationResponse(
-                application.getId(),
-                application.getVolunteer().getId(),
-                application.getRequirement().getId(),
-                application.getStatus()
-        );
+        return new ApplicationResponse(application);
     }
 }

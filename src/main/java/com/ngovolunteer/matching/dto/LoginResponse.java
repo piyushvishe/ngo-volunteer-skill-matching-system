@@ -6,6 +6,7 @@ public class LoginResponse {
     private String name;
     private String email;
     private String role;
+    private String phone;
 
     public LoginResponse() {
     }
@@ -16,6 +17,7 @@ public class LoginResponse {
         this.email = email;
         this.role = role;
     }
+    public LoginResponse(Long id, String name, String email, String role, String phone) { this(id,name,email,role); this.phone=phone; }
 
     public Long getId() {
         return id;
@@ -32,4 +34,5 @@ public class LoginResponse {
     public String getRole() {
         return role;
     }
+    public String getPhone(){return phone;}
 }

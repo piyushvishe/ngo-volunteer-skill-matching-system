@@ -1,6 +1,7 @@
 package com.ngovolunteer.matching.entity;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "users")
@@ -12,11 +13,14 @@ public class User {
 
     private String name;
 
+    @JsonIgnore
     @Column(unique = true, nullable = false)
     private String email;
 
+    @JsonIgnore
     private String phone;
 
+    @JsonIgnore
     private String password;
 
     private String role;

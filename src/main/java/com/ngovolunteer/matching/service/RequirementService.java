@@ -26,12 +26,18 @@ public class RequirementService {
             Requirement requirement,
             Long userId) {
 
+        if (requirement.getTitle() == null || requirement.getTitle().isBlank() || requirement.getLocation() == null || requirement.getLocation().isBlank() ||
+                requirement.getDate() == null || requirement.getDate().isBlank() || requirement.getTime() == null || requirement.getTime().isBlank() ||
+                requirement.getVolunteersNeeded() == null || requirement.getVolunteersNeeded() < 1)
+            throw new IllegalArgumentException("Title, location, date, time, and a positive volunteer count are required");
+
         Ngo ngo = ngoRepository
                 .findByUserId(userId)
                 .orElseThrow(() ->
                         new RuntimeException("NGO profile not found for this user"));
 
         requirement.setNgo(ngo);
+        requirement.setStatus("OPEN");
 
         return requirementRepository.save(requirement);
     }
@@ -46,9 +52,18 @@ public class RequirementService {
                 .orElse(null);
     }
 
+    public boolean owns(Long id, Long userId) {
+        return requirementRepository.existsByIdAndNgoUserId(id, userId);
+    }
+
     public Requirement updateRequirement(
             Long id,
             Requirement requirement) {
+
+        if (requirement.getTitle() == null || requirement.getTitle().isBlank() || requirement.getVolunteersNeeded() == null || requirement.getVolunteersNeeded() < 1)
+            throw new IllegalArgumentException("Title and a positive volunteer count are required");
+        if (requirement.getStatus() != null && !java.util.Set.of("OPEN", "CLOSED").contains(requirement.getStatus().trim().toUpperCase()))
+            throw new IllegalArgumentException("Invalid requirement status");
 
         Requirement existingRequirement =
                 requirementRepository
@@ -72,8 +87,7 @@ public class RequirementService {
                 requirement.getTime());
         existingRequirement.setTaskDescription(
                 requirement.getTaskDescription());
-        existingRequirement.setStatus(
-                requirement.getStatus());
+        if (requirement.getStatus() != null) existingRequirement.setStatus(requirement.getStatus().trim().toUpperCase());
 
         return requirementRepository.save(existingRequirement);
     }
