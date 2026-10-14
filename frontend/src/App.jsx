@@ -1,17 +1,5 @@
 import { useEffect, useState } from 'react'
 
-/* =========================================================
-   FRONTEND DATA LAYER
-   ---------------------------------------------------------
-   This file has NO hard-coded volunteers, NGOs, requirements,
-   assignments or history records.
-
-   For the current frontend-only stage, localStorage acts as the
-   temporary data store. When Spring Boot + MySQL are connected,
-   these helper functions can be replaced by API calls without
-   changing the UI flow.
-   ========================================================= */
-
 const STORAGE = {
     users: 'volunteerlink_users',
     currentUser: 'volunteerlink_current_user',
@@ -45,11 +33,11 @@ const SKILL_GROUPS = {
     fundraising: ['fundraising', 'fund raising', 'donation', 'donor', 'campaign', 'event management', 'event planning'],
     environment: ['environment', 'environmental', 'tree plantation', 'recycling', 'waste management', 'sustainability', 'conservation'],
 }
-
+//normalizes text so that it is easy to compare
 function normalizeText(value = '') {
     return String(value).toLowerCase().trim()
 }
-
+//breaks the location into parts so that it goes to its exact field
 function getLocationParts(person = {}) {
     if (person.city || person.area || person.street) {
         return {
@@ -71,13 +59,13 @@ function formatLocation(person = {}) {
     const { city, area, street } = getLocationParts(person)
     return [city, area, street].filter(Boolean).join(', ') || person.location || 'Location not set'
 }
-
+ //use to check whether weekday or weekend
 function getDayType(date) {
     if (!date) return ''
     const day = new Date(`${date}T00:00:00`).getDay()
     return day === 0 || day === 6 ? 'weekends' : 'weekdays'
 }
-
+//use mainly for time parsing i.e 1 to 12 and 13 to 24
 function parseTimePart(value) {
     const match = String(value || '').trim().toLowerCase().match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/)
     if (!match) return null
@@ -91,7 +79,7 @@ function parseTimePart(value) {
 
     return { hour, minute }
 }
-
+//it is used so that the mark as completed can be enabled it compares end time of activity with new date
 function getAssignmentEndDateTime(assignment) {
     if (!assignment?.date || !assignment?.time) return null
 
@@ -119,6 +107,7 @@ function getAssignmentEndDateTime(assignment) {
     return endDate
 }
 
+
 function getAssignmentHours(assignment) {
     if (!assignment?.time) return 0
 
@@ -144,7 +133,7 @@ function getAssignmentHours(assignment) {
     if (endMinutes < startMinutes) endMinutes += 12 * 60
     return Number(((endMinutes - startMinutes) / 60).toFixed(2))
 }
-
+//checks if the skills are related by comparing in predefined datasets
 function skillsAreRelated(skillA, skillB) {
     const a = normalizeText(skillA)
     const b = normalizeText(skillB)
